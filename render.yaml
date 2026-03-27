@@ -1,0 +1,20 @@
+services:
+     - type: web
+       name: dreamweaver-web
+       env: static
+       buildCommand: echo "Static site"
+       staticPublishPath: web
+       routes:
+         - type: http
+           path: /
+           matchType: prefix
+   
+     - type: web
+       name: dreamweaver-server
+       env: python
+       buildCommand: pip install -r requirements.txt
+       startCommand: python src/server.py
+       routes:
+         - type: http
+           path: /
+           matchType: prefix
