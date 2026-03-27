@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dreamweaver</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="gameCanvas" width="900" height="700"></canvas>
+    
+    <!-- Main Menu UI -->
+    <div id="mainMenu" class="ui-overlay">
+        <div class="ui-panel">
+            <h1>DREAMWEAVER</h1>
+            <input id="playerName" type="text" placeholder="Enter your name" maxlength="12" class="ui-input">
+            <input id="roomCode" type="text" placeholder="Room code (4 letters)" maxlength="4" class="ui-input" style="display: none;">
+            <div class="ui-buttons">
+                <button id="hostBtn" class="ui-btn btn-host">HOST</button>
+                <button id="joinBtn" class="ui-btn btn-join">JOIN</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lobby UI -->
+    <div id="lobbyUI" class="ui-overlay" style="display: none;">
+        <div class="ui-panel">
+            <h2 id="roomCodeDisplay">ROOM CODE: ????</h2>
+            <p id="playerCountDisplay">Players (0/4):</p>
+            <div id="playersList" class="players-list"></div>
+            <button id="startGameBtn" class="ui-btn btn-teal" style="display: none;">START GAME</button>
+        </div>
+    </div>
+
+    <!-- Level Complete UI -->
+    <div id="levelCompleteUI" class="ui-overlay" style="display: none;">
+        <div class="ui-panel">
+            <h2 id="levelResultText">Level Complete</h2>
+            <div id="starsDisplay" style="margin: 20px 0;"></div>
+            <p id="scoreDisplay">Score: 0</p>
+            <button id="nextLevelBtn" class="ui-btn btn-teal">CONTINUE</button>
+        </div>
+    </div>
+
+    <script src="network.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

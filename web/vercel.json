@@ -1,0 +1,7 @@
+{
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "env": {
+    "GAME_SERVER": "@game_server"
+  }
+}
