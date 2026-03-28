@@ -334,7 +334,7 @@ class Game {
         this.syncInterval = 16; // ms between syncs (16ms ≈ 62 Hz) - faster sync for responsive gameplay
         
         this.lastUseStationTime = 0;
-        this.useStationInterval = 16; // ms between action sends (16ms ≈ 60 Hz)
+        this.useStationInterval = 50; // ms between USE_STATION actions (50ms ≈ 20 Hz)
 
         this.setupEventListeners();
     }
@@ -582,7 +582,7 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
-                    // Logic Filter - send continuous action to server (throttled)
+                    // Logic Filter - send continuous action to server (throttled to 50ms)
                     if (s.name === "Logic Filter" && this.keys[' '] && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
                         const now = Date.now();
                         if ((now - this.lastUseStationTime) >= this.useStationInterval) {
@@ -590,6 +590,18 @@ class Game {
                             this.network.send({
                                 action: "USE_STATION",
                                 station: "Logic Filter"
+                            }).then(res => {
+                                // Handle game state update from server
+                                if (res && res.game_state && res.game_state.stations) {
+                                    const serverLogicFilter = res.game_state.stations["Logic Filter"];
+                                    if (serverLogicFilter) {
+                                        s.progress = serverLogicFilter.progress;
+                                        // If processed, update player's item
+                                        if (this.player.heldItem && serverLogicFilter.progress === 0 && this.player.heldItem.isProcessed) {
+                                            // Already marked as processed in SYNC
+                                        }
+                                    }
+                                }
                             }).catch(() => {}); // Silently fail if not connected
                         }
                     }
@@ -693,14 +705,9 @@ class Game {
                                     const serverStation = serverState.stations[stationName];
                                     const clientStation = this.stations.find(s => s.name === stationName);
                                     if (clientStation) {
-                                        // Only update if server state differs from client
-                                        const serverItem = serverStation.held_item ? 
+                                        // Update station state from server
+                                        clientStation.heldItem = serverStation.held_item ? 
                                             this.deserializeItem(serverStation.held_item) : null;
-                                        
-                                        // Check if items are meaningfully different
-                                        if (!this.itemsEqual(clientStation.heldItem, serverItem)) {
-                                            clientStation.heldItem = serverItem;
-                                        }
                                         
                                         clientStation.progress = serverStation.progress;
                                         clientStation.isCooking = serverStation.is_cooking;
