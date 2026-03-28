@@ -329,6 +329,12 @@ class Game {
         this.mousePos = { x: 0, y: 0 };
         this.mouseClicked = false;
         this.spacebarPressed = false; // Track spacebar state to prevent double-triggers
+        
+        this.lastSyncTime = 0;
+        this.syncInterval = 30; // ms between syncs (30ms ≈ 33 Hz)
+        
+        this.lastUseStationTime = 0;
+        this.useStationInterval = 16; // ms between action sends (16ms ≈ 60 Hz)
 
         this.setupEventListeners();
     }
@@ -576,14 +582,16 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
-                    // Logic Filter - send continuous action to server
+                    // Logic Filter - send continuous action to server (throttled)
                     if (s.name === "Logic Filter" && this.keys[' '] && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                        // Don't update locally - let server handle it
-                        // Just send the action
-                        this.network.send({
-                            action: "USE_STATION",
-                            station: "Logic Filter"
-                        }).catch(() => {}); // Silently fail if not connected
+                        const now = Date.now();
+                        if ((now - this.lastUseStationTime) >= this.useStationInterval) {
+                            this.lastUseStationTime = now;
+                            this.network.send({
+                                action: "USE_STATION",
+                                station: "Logic Filter"
+                            }).catch(() => {}); // Silently fail if not connected
+                        }
                     }
                 } else {
                     s.isHighlighted = false;
@@ -616,7 +624,11 @@ class Game {
             if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
             // Network sync - get authoritative game state from server
-            if (this.network.connected && this.player) {
+            // Throttle to 30ms interval to avoid excessive network traffic
+            const now = Date.now();
+            if (this.network.connected && this.player && (now - this.lastSyncTime) >= this.syncInterval) {
+                this.lastSyncTime = now;
+                
                 const heldItemData = this.player.heldItem ? {
                     name: this.player.heldItem.name,
                     color: this.player.heldItem.color,
@@ -635,7 +647,23 @@ class Game {
                     if (res && res.status === "success") {
                         // Update players
                         for (let p of res.players) {
-                            if (p.id !== this.myId && this.playersDict[p.id]) {
+                            if (p.id === this.myId && this.player) {
+                                // Update own player's held item from server (preserves isProcessed flag)
+                                if (p.heldItem) {
+                                    if (this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
+                                        // Same item - preserve server's processed state
+                                        this.player.heldItem.isProcessed = p.heldItem.isProcessed;
+                                    } else {
+                                        // New item picked up
+                                        const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
+                                        item.bundle = p.heldItem.bundle || [];
+                                        item.dishName = p.heldItem.dishName;
+                                        this.player.heldItem = item;
+                                    }
+                                } else {
+                                    this.player.heldItem = null;
+                                }
+                            } else if (p.id !== this.myId && this.playersDict[p.id]) {
                                 this.playersDict[p.id].x = p.x;
                                 this.playersDict[p.id].y = p.y;
                                 

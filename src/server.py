@@ -239,7 +239,22 @@ async def handle_client(websocket):
                         if p["id"] == client_id:
                             p["x"] = request.get("x", p["x"])
                             p["y"] = request.get("y", p["y"])
-                            p["heldItem"] = request.get("heldItem")
+                            
+                            # Smart item syncing - preserve server-side processing
+                            client_item = request.get("heldItem")
+                            server_item = p.get("heldItem")
+                            
+                            if client_item is None:
+                                # Client dropped item
+                                p["heldItem"] = None
+                            elif server_item is None:
+                                # Client picked up new item
+                                p["heldItem"] = client_item
+                            else:
+                                # Item in progress - preserve isProcessed flag from server
+                                if server_item.get("isProcessed"):
+                                    client_item["isProcessed"] = True
+                                p["heldItem"] = client_item
                             break
                     
                     # Update game state and send back
@@ -277,11 +292,11 @@ async def handle_client(websocket):
                         # Check if player has unprocessed item
                         if client_id in players_dict:
                             player = players_dict[client_id]
-                            if player.get("heldItem") and not player["heldItem"].get("is_processed") and not player["heldItem"].get("is_vessel"):
+                            if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
                                 station["progress"] += 0.015
                                 if station["progress"] >= 1.0:
-                                    # Mark item as processed
-                                    player["heldItem"]["is_processed"] = True
+                                    # Mark item as processed (using camelCase to match client format)
+                                    player["heldItem"]["isProcessed"] = True
                                     station["progress"] = 0.0
                     
                     response = {"status": "success"}
