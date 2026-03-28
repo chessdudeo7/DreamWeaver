@@ -111,14 +111,12 @@ class Item {
             ctx.stroke();
 
             drawCircle(ctx, x, y, r, this.color);
-            drawCircle(ctx, x, y, r / 2, WHITE);
-
+            
             if (this.isProcessed) {
-                ctx.strokeStyle = rgbToString(TEAL);
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(x, y, r + 6, 0, Math.PI * 2);
-                ctx.stroke();
+                // Processed - no white hue, just solid color
+            } else {
+                // Unprocessed - white hue
+                drawCircle(ctx, x, y, r / 2, WHITE);
             }
 
             if (this.bundle.length > 0) {
@@ -174,21 +172,38 @@ class Station {
 
         // Draw text
         if (!this.name.includes("Crate")) {
-            ctx.font = 'bold 14px Arial';
+            ctx.save(); // Save canvas state
+            ctx.font = 'bold 12px Arial';
             ctx.fillStyle = rgbToString(this.name === "Void Siphon" || this.name === "Vessel Return" ? WHITE : [20, 20, 20]);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
             const words = this.name.split(' ');
+            const lineHeight = 14;
+            const totalHeight = words.length * lineHeight;
+            const startY = this.y + this.h / 2 - totalHeight / 2;
+            
             for (let i = 0; i < words.length; i++) {
-                ctx.fillText(words[i], this.x + this.w / 2 - ctx.measureText(words[i]).width / 2, this.y + 10 + i * 16);
+                ctx.fillText(words[i], this.x + this.w / 2, startY + i * lineHeight, this.w - 10);
             }
+            ctx.restore(); // Restore canvas state
         }
 
         // Draw vessel count
         if (this.name === "Vessel Return") {
             for (let i = 0; i < this.vesselCount; i++) {
-                ctx.strokeStyle = rgbToString([120, 100, 200]);
-                ctx.lineWidth = 2;
+                // Draw empty plate outline in white, positioned lower
+                ctx.strokeStyle = rgbToString(WHITE);
+                ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.ellipse(this.x + this.w / 2, this.y + this.h / 2 - 10 - i * 8, 22, 12, 0, 0, Math.PI * 2);
+                ctx.ellipse(this.x + this.w / 2, this.y + this.h / 2 + 20 - i * 8, 22, 12, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // Add a subtle inner line to show it's a plate
+                ctx.strokeStyle = rgbToString([200, 200, 200]);
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.ellipse(this.x + this.w / 2, this.y + this.h / 2 + 20 - i * 8, 20, 10, 0, 0, Math.PI * 2);
                 ctx.stroke();
             }
         }
@@ -313,6 +328,7 @@ class Game {
         this.keys = {};
         this.mousePos = { x: 0, y: 0 };
         this.mouseClicked = false;
+        this.spacebarPressed = false; // Track spacebar state to prevent double-triggers
 
         this.setupEventListeners();
     }
@@ -320,7 +336,10 @@ class Game {
     setupEventListeners() {
         document.addEventListener('keydown', (e) => {
             this.keys[e.key] = true;
-            if (e.key === ' ') e.preventDefault();
+            // Prevent default behavior for space and arrow keys
+            if (e.key === ' ' || ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+            }
         });
         document.addEventListener('keyup', (e) => this.keys[e.key] = false);
         document.addEventListener('mousemove', (e) => {
@@ -331,8 +350,21 @@ class Game {
         document.addEventListener('click', () => this.mouseClicked = true);
 
         // UI Button listeners
-        document.getElementById('hostBtn').addEventListener('click', () => this.hostGame());
-        document.getElementById('joinBtn').addEventListener('click', () => this.joinGame());
+        document.getElementById('hostBtn').addEventListener('click', () => {
+            // Hide room code when hosting
+            document.getElementById('roomCode').style.display = 'none';
+            this.hostGame();
+        });
+        document.getElementById('joinBtn').addEventListener('click', () => {
+            // Show room code input when joining
+            const roomCodeInput = document.getElementById('roomCode');
+            if (roomCodeInput.style.display === 'none') {
+                roomCodeInput.style.display = 'block';
+                roomCodeInput.focus();
+            } else {
+                this.joinGame();
+            }
+        });
         document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
         document.getElementById('nextLevelBtn').addEventListener('click', () => this.nextLevel());
 
@@ -599,14 +631,17 @@ class Game {
                 });
             }
 
-            // Handle space bar interactions
-            if (this.keys[' '] && this.mouseClicked === false) { // Prevent repeated triggers
+            // Handle space bar interactions - only trigger on key press (not while held)
+            const spacebarDown = this.keys[' '];
+            if (spacebarDown && !this.spacebarPressed) {
+                // Spacebar just pressed (transitioned from false to true)
                 for (let s of this.stations) {
                     if (s.isHighlighted) {
                         this.handleStationInteraction(s);
                     }
                 }
             }
+            this.spacebarPressed = spacebarDown; // Update state for next frame
 
             // Update orders
             this.orders = this.orders.filter(o => {

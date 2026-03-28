@@ -4,7 +4,8 @@ class Network {
         // For local testing: ws://localhost:5555
         // For production: wss://your-render-domain.onrender.com
         const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        this.serverUrl = isDev ? 'ws://localhost:5555' : 'wss://dream-weaver-sandy.vercel.app';
+        // this.serverUrl = isDev ? 'ws://localhost:5555' : 'wss://dream-weaver-sandy.vercel.app';
+        this.serverUrl = isDev ? 'ws://localhost:5555' : 'wss://your-render-domain.com';
         this.ws = null;
         this.connected = false;
     }

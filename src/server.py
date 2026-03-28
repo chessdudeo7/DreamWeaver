@@ -14,7 +14,7 @@ rooms = {}
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
 
-async def handle_client(websocket, path):
+async def handle_client(websocket):
     client_id = id(websocket)
     current_room = None
     
