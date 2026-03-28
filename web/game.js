@@ -333,8 +333,7 @@ class Game {
         this.lastSyncTime = 0;
         this.syncInterval = 16; // ms between syncs (16ms ≈ 62 Hz) - faster sync for responsive gameplay
         
-        this.lastUseStationTime = 0;
-        this.useStationInterval = 50; // ms between USE_STATION actions (50ms ≈ 20 Hz)
+        this.logicFilterActive = false; // Track if player is currently processing at Logic Filter
 
         this.setupEventListeners();
     }
@@ -582,28 +581,20 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
-                    // Logic Filter - send continuous action to server (throttled to 50ms)
+                    // Logic Filter - send initial action to start processing
                     if (s.name === "Logic Filter" && this.keys[' '] && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                        const now = Date.now();
-                        if ((now - this.lastUseStationTime) >= this.useStationInterval) {
-                            this.lastUseStationTime = now;
+                        if (!this.logicFilterActive) {
+                            this.logicFilterActive = true;
                             this.network.send({
                                 action: "USE_STATION",
                                 station: "Logic Filter"
-                            }).then(res => {
-                                // Handle game state update from server
-                                if (res && res.game_state && res.game_state.stations) {
-                                    const serverLogicFilter = res.game_state.stations["Logic Filter"];
-                                    if (serverLogicFilter) {
-                                        s.progress = serverLogicFilter.progress;
-                                        // If processed, update player's item
-                                        if (this.player.heldItem && serverLogicFilter.progress === 0 && this.player.heldItem.isProcessed) {
-                                            // Already marked as processed in SYNC
-                                        }
-                                    }
-                                }
                             }).catch(() => {}); // Silently fail if not connected
                         }
+                    }
+                    
+                    // Stop processing when spacebar released or item processed
+                    if (s.name === "Logic Filter" && (!this.keys[' '] || !this.player.heldItem || this.player.heldItem.isProcessed)) {
+                        this.logicFilterActive = false;
                     }
                 } else {
                     s.isHighlighted = false;

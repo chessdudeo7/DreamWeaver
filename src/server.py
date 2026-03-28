@@ -46,6 +46,7 @@ class GameState:
         self.players = {}
         self.station_locks = {}  # Track which player is using each station
         self.vessel_respawn_timers = {}  # Track vessel respawn timers per player
+        self.logic_filter_user = None  # Track who is currently processing at Logic Filter
         self.last_update_time = time()
         
         self._create_stations(level)
@@ -124,7 +125,7 @@ class GameState:
             "recipe": RECIPES[name]
         })
     
-    def update(self, dt):
+    def update(self, dt, players_dict=None):
         """Update game state"""
         self.game_timer -= dt
         if self.game_timer <= 0:
@@ -145,6 +146,21 @@ class GameState:
         
         # Update stations
         for station_name, station in self.stations.items():
+            # Logic Filter - continuous progress for whoever is using it
+            if station["name"] == "Logic Filter" and self.logic_filter_user and players_dict:
+                if self.logic_filter_user in players_dict:
+                    player = players_dict[self.logic_filter_user]
+                    if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
+                        station["progress"] += dt * 0.2  # Progress per second
+                        if station["progress"] >= 1.0:
+                            # Mark item as processed (camelCase to match client format)
+                            player["heldItem"]["isProcessed"] = True
+                            station["progress"] = 0.0
+                            self.logic_filter_user = None
+                    else:
+                        # Player no longer has a valid item, stop processing
+                        self.logic_filter_user = None
+            
             if station["name"] == "Dream Visualizer" and station["is_cooking"]:
                 station["progress"] += 0.006
                 if station["progress"] >= 1.0:
@@ -245,7 +261,7 @@ async def handle_client(websocket):
                     # Update game state and send back
                     if rooms[current_room]["game_state"]:
                         dt = time() - rooms[current_room]["game_state"].last_update_time
-                        rooms[current_room]["game_state"].update(dt)
+                        rooms[current_room]["game_state"].update(dt, rooms[current_room]["players_dict"])
                         rooms[current_room]["game_state"].last_update_time = time()
                         
                         response = {
@@ -270,21 +286,12 @@ async def handle_client(websocket):
                 if current_room and current_room in rooms and rooms[current_room]["game_state"]:
                     game_state = rooms[current_room]["game_state"]
                     station_name = request.get("station")
-                    players_dict = rooms[current_room]["players_dict"]
                     
-                    if station_name == "Logic Filter" and station_name in game_state.stations:
-                        station = game_state.stations[station_name]
-                        # Check if player has unprocessed item
-                        if client_id in players_dict:
-                            player = players_dict[client_id]
-                            if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
-                                station["progress"] += 0.015
-                                if station["progress"] >= 1.0:
-                                    # Mark item as processed (using camelCase to match client format)
-                                    player["heldItem"]["isProcessed"] = True
-                                    station["progress"] = 0.0
+                    if station_name == "Logic Filter":
+                        # Mark this player as using the Logic Filter
+                        game_state.logic_filter_user = client_id
                     
-                    # Return updated game state so client sees progress immediately
+                    # Return updated game state
                     response = {
                         "status": "success",
                         "game_state": game_state.to_dict()
