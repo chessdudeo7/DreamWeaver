@@ -150,8 +150,9 @@ class GameState:
             if station["name"] == "Logic Filter" and self.logic_filter_user and players_dict:
                 if self.logic_filter_user in players_dict:
                     player = players_dict[self.logic_filter_user]
+                    # Only process if player has item AND item is not already processed
                     if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
-                        station["progress"] += dt * 0.2  # Progress per second
+                        station["progress"] += dt * 10.0  # ~0.1 seconds to complete
                         if station["progress"] >= 1.0:
                             # Mark item as processed (camelCase to match client format)
                             player["heldItem"]["isProcessed"] = True
@@ -159,6 +160,7 @@ class GameState:
                             self.logic_filter_user = None
                     else:
                         # Player no longer has a valid item, stop processing
+                        station["progress"] = 0.0
                         self.logic_filter_user = None
             
             if station["name"] == "Dream Visualizer" and station["is_cooking"]:
@@ -288,14 +290,25 @@ async def handle_client(websocket):
                     station_name = request.get("station")
                     
                     if station_name == "Logic Filter":
-                        # Mark this player as using the Logic Filter
-                        game_state.logic_filter_user = client_id
+                        # Mark this player as using the Logic Filter (only if not already processing)
+                        if game_state.logic_filter_user != client_id:
+                            game_state.logic_filter_user = client_id
                     
                     # Return updated game state
                     response = {
                         "status": "success",
                         "game_state": game_state.to_dict()
                     }
+            
+            elif action == "STOP_USE_STATION":
+                if current_room and current_room in rooms and rooms[current_room]["game_state"]:
+                    game_state = rooms[current_room]["game_state"]
+                    # Stop processing if this player is the one using it
+                    if game_state.logic_filter_user == client_id:
+                        game_state.logic_filter_user = None
+                        game_state.stations["Logic Filter"]["progress"] = 0.0
+                    
+                    response = {"status": "success"}
 
             await websocket.send(json.dumps(response))
 

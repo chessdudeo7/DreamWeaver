@@ -77,9 +77,10 @@ class Item {
         this.bundle = [];
         this.dishName = null;
         this.dishColor = null;
+        this.rotationAngle = 0;  // For spinning animation when on plate
     }
 
-    draw(ctx, x, y, scale = 1.0) {
+    draw(ctx, x, y, scale = 1.0, onPlate = false) {
         const pulse = Math.sin(Date.now() * 0.01) * 2;
         const r = (12 + pulse) * scale;
 
@@ -91,8 +92,14 @@ class Item {
             ctx.stroke();
 
             if (this.dishName) {
-                drawCircle(ctx, x, y - 8, r, this.dishColor);
-                drawCircle(ctx, x, y - 8, r - 4, WHITE);
+                // Spinning animation for item on plate
+                ctx.save();
+                ctx.translate(x, y - 8);
+                this.rotationAngle = (Date.now() * 0.005) % (Math.PI * 2);
+                ctx.rotate(this.rotationAngle);
+                drawCircle(ctx, 0, 0, r, this.dishColor);
+                drawCircle(ctx, 0, 0, r - 4, WHITE);
+                ctx.restore();
             } else if (this.bundle.length > 0) {
                 for (let i = 0; i < this.bundle.length; i++) {
                     const angleStep = (2 * Math.PI) / this.bundle.length;
@@ -104,19 +111,36 @@ class Item {
                 }
             }
         } else {
-            ctx.strokeStyle = rgbToString(this.color);
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-            ctx.stroke();
-
-            drawCircle(ctx, x, y, r, this.color);
-            
-            if (this.isProcessed) {
-                // Processed - no white hue, just solid color
+            // Spinning animation for processed items on plate
+            if (onPlate && this.isProcessed) {
+                ctx.save();
+                ctx.translate(x, y);
+                this.rotationAngle = (Date.now() * 0.005) % (Math.PI * 2);
+                ctx.rotate(this.rotationAngle);
+                
+                ctx.strokeStyle = rgbToString(this.color);
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, r + 4, 0, Math.PI * 2);
+                ctx.stroke();
+                drawCircle(ctx, 0, 0, r, this.color);
+                
+                ctx.restore();
             } else {
-                // Unprocessed - white hue
-                drawCircle(ctx, x, y, r / 2, WHITE);
+                ctx.strokeStyle = rgbToString(this.color);
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+                ctx.stroke();
+
+                drawCircle(ctx, x, y, r, this.color);
+                
+                if (this.isProcessed) {
+                    // Processed - no white hue, just solid color
+                } else {
+                    // Unprocessed - white hue
+                    drawCircle(ctx, x, y, r / 2, WHITE);
+                }
             }
 
             if (this.bundle.length > 0) {
@@ -130,6 +154,7 @@ class Item {
                 }
             }
         }
+        ctx.restore();
     }
 }
 
@@ -213,11 +238,12 @@ class Station {
             const bounce = Math.sin(frame * 0.1) * 8;
             this.heldItem.draw(ctx, this.x + this.w / 2, this.y - 25 + bounce);
         } else if (this.heldItem) {
-            this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2);
+            const isOnPlate = this.heldItem.dishName ? true : false;
+            this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, 1.0, isOnPlate);
         }
 
-        // Draw progress bar
-        if (this.progress > 0) {
+        // Draw progress bar only while processing (disappears when complete)
+        if (this.progress > 0 && this.progress < 1.0 && this.heldItem && !this.heldItem.isProcessed) {
             drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
             drawRect(ctx, this.x, this.y + this.h + 8, this.w * this.progress, 8, TEAL, 4);
         }
@@ -582,20 +608,36 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
-                    // Logic Filter - send initial action to start processing
-                    if (s.name === "Logic Filter" && this.keys[' '] && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                        if (!this.logicFilterActive) {
-                            this.logicFilterActive = true;
-                            this.network.send({
-                                action: "USE_STATION",
-                                station: "Logic Filter"
-                            }).catch(() => {}); // Silently fail if not connected
+                    // Logic Filter - requires continuous spacebar hold to process
+                    if (s.name === "Logic Filter" && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
+                        if (this.keys[' ']) {
+                            // Spacebar is held - continue processing
+                            if (!this.logicFilterActive) {
+                                this.logicFilterActive = true;
+                                this.network.send({
+                                    action: "USE_STATION",
+                                    station: "Logic Filter"
+                                }).catch(() => {});
+                            }
+                        } else {
+                            // Spacebar not held - stop processing
+                            if (this.logicFilterActive) {
+                                this.logicFilterActive = false;
+                                this.network.send({
+                                    action: "STOP_USE_STATION",
+                                    station: "Logic Filter"
+                                }).catch(() => {});
+                            }
                         }
-                    }
-                    
-                    // Stop processing when spacebar released or item processed
-                    if (s.name === "Logic Filter" && (!this.keys[' '] || !this.player.heldItem || this.player.heldItem.isProcessed)) {
-                        this.logicFilterActive = false;
+                    } else if (this.logicFilterActive) {
+                        // Stop processing if not in Logic Filter anymore, item already processed, or spacebar released
+                        if (!this.keys[' '] || !this.player.heldItem || this.player.heldItem.isProcessed) {
+                            this.logicFilterActive = false;
+                            this.network.send({
+                                action: "STOP_USE_STATION",
+                                station: "Logic Filter"
+                            }).catch(() => {});
+                        }
                     }
                 } else {
                     s.isHighlighted = false;
