@@ -334,6 +334,7 @@ class Game {
         this.syncInterval = 16; // ms between syncs (16ms ≈ 62 Hz) - faster sync for responsive gameplay
         
         this.logicFilterActive = false; // Track if player is currently processing at Logic Filter
+        this.lastInteractionTime = 0; // Track when we last interacted with a station
 
         this.setupEventListeners();
     }
@@ -648,23 +649,35 @@ class Game {
                     heldItem: heldItemData
                 }).then(res => {
                     if (res && res.status === "success") {
+                        const timeSinceInteraction = Date.now() - this.lastInteractionTime;
+                        
                         // Update players
                         for (let p of res.players) {
                             if (p.id === this.myId && this.player) {
-                                // Update own player's held item from server (preserves isProcessed flag)
-                                if (p.heldItem) {
-                                    if (this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
-                                        // Same item - preserve server's processed state
+                                // Update own player's held item from server
+                                // But be conservative if we just interacted - only update if server has different item
+                                if (timeSinceInteraction < 100) {
+                                    // Recent interaction - only sync if processed state changes
+                                    if (p.heldItem && this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
                                         this.player.heldItem.isProcessed = p.heldItem.isProcessed;
-                                    } else {
-                                        // New item picked up
-                                        const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
-                                        item.bundle = p.heldItem.bundle || [];
-                                        item.dishName = p.heldItem.dishName;
-                                        this.player.heldItem = item;
                                     }
+                                    // Don't overwrite our item if we just picked something up
                                 } else {
-                                    this.player.heldItem = null;
+                                    // Normal sync - trust server state
+                                    if (p.heldItem) {
+                                        if (this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
+                                            // Same item - preserve server's processed state
+                                            this.player.heldItem.isProcessed = p.heldItem.isProcessed;
+                                        } else {
+                                            // New item picked up
+                                            const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
+                                            item.bundle = p.heldItem.bundle || [];
+                                            item.dishName = p.heldItem.dishName;
+                                            this.player.heldItem = item;
+                                        }
+                                    } else {
+                                        this.player.heldItem = null;
+                                    }
                                 }
                             } else if (p.id !== this.myId && this.playersDict[p.id]) {
                                 this.playersDict[p.id].x = p.x;
@@ -745,6 +758,9 @@ class Game {
     }
 
     handleStationInteraction(s) {
+        // Track when we interact to avoid server overwriting our state immediately
+        this.lastInteractionTime = Date.now();
+        
         if (s.name === "Void Siphon" && this.player.heldItem) {
             if (this.player.heldItem.isVessel) {
                 this.player.heldItem.bundle = [];
