@@ -92,15 +92,11 @@ class Item {
             ctx.stroke();
 
             if (this.dishName) {
-                // Spinning animation for item on plate
-                ctx.save();
-                ctx.translate(x, y - 8);
-                this.rotationAngle = (Date.now() * 0.005) % (Math.PI * 2);
-                ctx.rotate(this.rotationAngle);
-                drawCircle(ctx, 0, 0, r, this.dishColor);
-                drawCircle(ctx, 0, 0, r - 4, WHITE);
-                ctx.restore();
+                // Draw dish on plate (stays centered)
+                drawCircle(ctx, x, y - 8, r, this.dishColor);
+                drawCircle(ctx, x, y - 8, r - 4, WHITE);
             } else if (this.bundle.length > 0) {
+                // Draw items orbiting on the plate
                 for (let i = 0; i < this.bundle.length; i++) {
                     const angleStep = (2 * Math.PI) / this.bundle.length;
                     const speed = Date.now() * 0.005;
@@ -111,38 +107,23 @@ class Item {
                 }
             }
         } else {
-            // Spinning animation for processed items on plate
-            if (onPlate && this.isProcessed) {
-                ctx.save();
-                ctx.translate(x, y);
-                this.rotationAngle = (Date.now() * 0.005) % (Math.PI * 2);
-                ctx.rotate(this.rotationAngle);
-                
-                ctx.strokeStyle = rgbToString(this.color);
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(0, 0, r + 4, 0, Math.PI * 2);
-                ctx.stroke();
-                drawCircle(ctx, 0, 0, r, this.color);
-                
-                ctx.restore();
-            } else {
-                ctx.strokeStyle = rgbToString(this.color);
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-                ctx.stroke();
+            // Regular orb
+            ctx.strokeStyle = rgbToString(this.color);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+            ctx.stroke();
 
-                drawCircle(ctx, x, y, r, this.color);
-                
-                if (this.isProcessed) {
-                    // Processed - no white hue, just solid color
-                } else {
-                    // Unprocessed - white hue
-                    drawCircle(ctx, x, y, r / 2, WHITE);
-                }
+            drawCircle(ctx, x, y, r, this.color);
+            
+            if (this.isProcessed) {
+                // Processed - no white hue, just solid color
+            } else {
+                // Unprocessed - white hue
+                drawCircle(ctx, x, y, r / 2, WHITE);
             }
 
+            // Bundle items orbit the orb
             if (this.bundle.length > 0) {
                 for (let i = 0; i < this.bundle.length; i++) {
                     const angleStep = (2 * Math.PI) / this.bundle.length;
@@ -154,7 +135,6 @@ class Item {
                 }
             }
         }
-        ctx.restore();
     }
 }
 
@@ -242,8 +222,8 @@ class Station {
             this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, 1.0, isOnPlate);
         }
 
-        // Draw progress bar only while processing (disappears when complete)
-        if (this.progress > 0 && this.progress < 1.0 && this.heldItem && !this.heldItem.isProcessed) {
+        // Draw progress bar - shows for any station with active progress (Logic Filter, Dream Visualizer, etc)
+        if (this.progress > 0 && this.progress < 1.0) {
             drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
             drawRect(ctx, this.x, this.y + this.h + 8, this.w * this.progress, 8, TEAL, 4);
         }
@@ -757,7 +737,8 @@ class Game {
                                         
                                         clientStation.progress = serverStation.progress;
                                         clientStation.isCooking = serverStation.is_cooking;
-                                        clientStation.vesselCount = serverStation.vessel_count;
+                                        // Cap vessel count at 3 (only 3 vessels available per level)
+                                        clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
                                     }
                                 }
                             }
