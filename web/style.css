@@ -17,16 +17,24 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    padding: 10px;
+}
+
+#gameContainer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 900px;
+    max-height: 700px;
+    aspect-ratio: 900 / 700;
 }
 
 canvas {
     border: 2px solid #00ffc8;
     display: block;
     background: #0f0a19;
-    max-width: 90vw;
-    max-height: 90vh;
-    width: 900px;
-    height: 700px;
+    width: 100%;
+    height: 100%;
 }
 
 .ui-overlay {
@@ -169,7 +177,43 @@ p {
     letter-spacing: 20px;
 }
 
+@media (max-width: 1024px) {
+    #gameContainer {
+        max-width: 85vw;
+        max-height: calc(85vw * 700 / 900);
+    }
+}
+
+@media (max-width: 768px) {
+    #gameContainer {
+        max-width: 95vw;
+        max-height: calc(95vw * 700 / 900);
+    }
+    
+    .ui-panel {
+        min-width: 85vw;
+        padding: 25px;
+    }
+    
+    h1 {
+        font-size: 36px;
+    }
+    
+    h2 {
+        font-size: 28px;
+    }
+}
+
 @media (max-width: 600px) {
+    #gameContainer {
+        max-width: 100vw;
+        max-height: calc(100vw * 700 / 900);
+    }
+    
+    body {
+        padding: 5px;
+    }
+    
     .ui-panel {
         min-width: 90vw;
         padding: 20px;
@@ -181,10 +225,5 @@ p {
     
     h2 {
         font-size: 24px;
-    }
-    
-    canvas {
-        max-width: 100vw;
-        max-height: 100vh;
     }
 }

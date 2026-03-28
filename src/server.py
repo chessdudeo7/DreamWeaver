@@ -265,6 +265,26 @@ async def handle_client(websocket):
                     # Simple interaction handling - the client will handle most logic
                     # Server just syncs state
                     response = {"status": "success"}
+            
+            elif action == "USE_STATION":
+                if current_room and current_room in rooms and rooms[current_room]["game_state"]:
+                    game_state = rooms[current_room]["game_state"]
+                    station_name = request.get("station")
+                    players_dict = rooms[current_room]["players_dict"]
+                    
+                    if station_name == "Logic Filter" and station_name in game_state.stations:
+                        station = game_state.stations[station_name]
+                        # Check if player has unprocessed item
+                        if client_id in players_dict:
+                            player = players_dict[client_id]
+                            if player.get("heldItem") and not player["heldItem"].get("is_processed") and not player["heldItem"].get("is_vessel"):
+                                station["progress"] += 0.015
+                                if station["progress"] >= 1.0:
+                                    # Mark item as processed
+                                    player["heldItem"]["is_processed"] = True
+                                    station["progress"] = 0.0
+                    
+                    response = {"status": "success"}
 
             await websocket.send(json.dumps(response))
 

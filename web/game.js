@@ -576,12 +576,14 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
+                    // Logic Filter - send continuous action to server
                     if (s.name === "Logic Filter" && this.keys[' '] && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                        s.progress += 0.015;
-                        if (s.progress >= 1) {
-                            this.player.heldItem.isProcessed = true;
-                            s.progress = 0;
-                        }
+                        // Don't update locally - let server handle it
+                        // Just send the action
+                        this.network.send({
+                            action: "USE_STATION",
+                            station: "Logic Filter"
+                        }).catch(() => {}); // Silently fail if not connected
                     }
                 } else {
                     s.isHighlighted = false;
