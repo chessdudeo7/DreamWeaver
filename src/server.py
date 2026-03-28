@@ -170,13 +170,31 @@ class GameState:
 
     def to_dict(self):
         """Serialize state to send to clients"""
+        # Create a copy of stations to avoid modifying original
+        stations_copy = {}
+        
+        # Collect all items currently held by players to avoid duplicates
+        held_item_names = set()
+        for player in self.players.values():
+            if player.get("heldItem"):
+                held_item_names.add(player["heldItem"].get("name"))
+        
+        # Copy stations but exclude items that are held by players (unless they're vessels)
+        for name, station in self.stations.items():
+            stations_copy[name] = station.copy()
+            if station.get("held_item"):
+                item_name = station["held_item"].get("name")
+                # Only exclude item if a player holds an identical item and it's not a vessel
+                if item_name in held_item_names and not station["held_item"].get("is_vessel"):
+                    stations_copy[name]["held_item"] = None
+        
         return {
             "state": self.state,
             "score": self.score,
             "game_timer": max(0, self.game_timer),
             "frame": self.frame,
             "orders": self.orders,
-            "stations": self.stations,
+            "stations": stations_copy,
             "station_locks": self.station_locks
         }
 
@@ -240,18 +258,38 @@ async def handle_client(websocket):
                             p["x"] = request.get("x", p["x"])
                             p["y"] = request.get("y", p["y"])
                             
-                            # Smart item syncing - preserve server-side processing
+                            # Smart item syncing with conflict resolution
                             client_item = request.get("heldItem")
                             server_item = p.get("heldItem")
+                            game_state = rooms[current_room].get("game_state")
                             
                             if client_item is None:
-                                # Client dropped item
+                                # Client dropped item - find which station to put it in
+                                if server_item and game_state:
+                                    # Try to find a nearby empty station to place the dropped item
+                                    for station in game_state.stations.values():
+                                        if not station.get("held_item") and station["name"] not in ["Dispenser"]:
+                                            station["held_item"] = server_item
+                                            break
                                 p["heldItem"] = None
                             elif server_item is None:
-                                # Client picked up new item
-                                p["heldItem"] = client_item
+                                # Client picked up new item - validate it exists
+                                if game_state and client_item:
+                                    # Check if this item is in any nearby station
+                                    item_found = False
+                                    for station in game_state.stations.values():
+                                        station_item = station.get("held_item")
+                                        if station_item and station_item.get("name") == client_item.get("name"):
+                                            # Found matching item, remove from station and give to player
+                                            station["held_item"] = None
+                                            p["heldItem"] = client_item
+                                            item_found = True
+                                            break
+                                    if not item_found:
+                                        # Item not found in any station, just accept it (was in transit)
+                                        p["heldItem"] = client_item
                             else:
-                                # Item in progress - preserve isProcessed flag from server
+                                # Item in progress - preserve is_processed flag from server
                                 if server_item.get("isProcessed"):
                                     client_item["isProcessed"] = True
                                 p["heldItem"] = client_item

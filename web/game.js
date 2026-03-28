@@ -331,7 +331,7 @@ class Game {
         this.spacebarPressed = false; // Track spacebar state to prevent double-triggers
         
         this.lastSyncTime = 0;
-        this.syncInterval = 30; // ms between syncs (30ms ≈ 33 Hz)
+        this.syncInterval = 16; // ms between syncs (16ms ≈ 62 Hz) - faster sync for responsive gameplay
         
         this.lastUseStationTime = 0;
         this.useStationInterval = 16; // ms between action sends (16ms ≈ 60 Hz)
@@ -624,7 +624,7 @@ class Game {
             if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
             // Network sync - get authoritative game state from server
-            // Throttle to 30ms interval to avoid excessive network traffic
+            // Higher frequency sync (16ms) for responsive multiplayer
             const now = Date.now();
             if (this.network.connected && this.player && (now - this.lastSyncTime) >= this.syncInterval) {
                 this.lastSyncTime = now;
@@ -687,14 +687,21 @@ class Game {
                             this.orders = serverState.orders;
                             this.frame = serverState.frame;
                             
-                            // Sync stations from server
+                            // Sync stations from server - only update if changed to reduce flashing
                             if (serverState.stations) {
                                 for (let stationName in serverState.stations) {
                                     const serverStation = serverState.stations[stationName];
                                     const clientStation = this.stations.find(s => s.name === stationName);
                                     if (clientStation) {
-                                        clientStation.heldItem = serverStation.held_item ? 
+                                        // Only update if server state differs from client
+                                        const serverItem = serverStation.held_item ? 
                                             this.deserializeItem(serverStation.held_item) : null;
+                                        
+                                        // Check if items are meaningfully different
+                                        if (!this.itemsEqual(clientStation.heldItem, serverItem)) {
+                                            clientStation.heldItem = serverItem;
+                                        }
+                                        
                                         clientStation.progress = serverStation.progress;
                                         clientStation.isCooking = serverStation.is_cooking;
                                         clientStation.vesselCount = serverStation.vessel_count;
@@ -913,6 +920,15 @@ class Game {
             if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
         }
         return true;
+    }
+
+    itemsEqual(item1, item2) {
+        if (item1 === null && item2 === null) return true;
+        if (item1 === null || item2 === null) return false;
+        return item1.name === item2.name && 
+               item1.isProcessed === item2.isProcessed && 
+               item1.isVessel === item2.isVessel &&
+               this.arraysEqual(item1.bundle || [], item2.bundle || []);
     }
 
     deserializeItem(itemData) {
