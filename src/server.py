@@ -29,7 +29,7 @@ async def handle_client(websocket):
                 code = generate_code()
                 color = PLAYER_COLORS[0]
                 rooms[code] = {
-                    "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350}], 
+                    "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}], 
                     "state": "LOBBY"
                 }
                 current_room = code
@@ -42,7 +42,7 @@ async def handle_client(websocket):
                     if len(rooms[code]["players"]) < 4:
                         color_idx = len(rooms[code]["players"])
                         color = PLAYER_COLORS[color_idx]
-                        rooms[code]["players"].append({"id": client_id, "name": name, "color": color, "x": 450, "y": 350})
+                        rooms[code]["players"].append({"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None})
                         current_room = code
                         response = {"status": "success", "action": "JOINED", "code": code, "is_host": False, "player_id": client_id}
                     else:
@@ -67,6 +67,7 @@ async def handle_client(websocket):
                         if p["id"] == client_id:
                             p["x"] = request.get("x", p["x"])
                             p["y"] = request.get("y", p["y"])
+                            p["heldItem"] = request.get("heldItem", None)
                             break
                     response = {"status": "success", "players": rooms[current_room]["players"]}
 

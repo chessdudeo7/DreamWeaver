@@ -613,18 +613,38 @@ class Game {
             const dy = (this.keys['ArrowDown'] ? 1 : 0) - (this.keys['ArrowUp'] ? 1 : 0);
             if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-            // Network sync
+            // Network sync - send position and held item
             if (this.network.connected && this.player) {
+                const heldItemData = this.player.heldItem ? {
+                    name: this.player.heldItem.name,
+                    color: this.player.heldItem.color,
+                    isProcessed: this.player.heldItem.isProcessed,
+                    isVessel: this.player.heldItem.isVessel,
+                    bundle: this.player.heldItem.bundle,
+                    dishName: this.player.heldItem.dishName
+                } : null;
+                
                 this.network.send({
                     action: "SYNC",
                     x: Math.round(this.player.x),
-                    y: Math.round(this.player.y)
+                    y: Math.round(this.player.y),
+                    heldItem: heldItemData
                 }).then(res => {
                     if (res && res.status === "success") {
                         for (let p of res.players) {
                             if (p.id !== this.myId && this.playersDict[p.id]) {
                                 this.playersDict[p.id].x = p.x;
                                 this.playersDict[p.id].y = p.y;
+                                
+                                // Sync held items
+                                if (p.heldItem) {
+                                    const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
+                                    item.bundle = p.heldItem.bundle || [];
+                                    item.dishName = p.heldItem.dishName;
+                                    this.playersDict[p.id].heldItem = item;
+                                } else {
+                                    this.playersDict[p.id].heldItem = null;
+                                }
                             }
                         }
                     }
