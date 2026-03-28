@@ -613,7 +613,7 @@ class Game {
             const dy = (this.keys['ArrowDown'] ? 1 : 0) - (this.keys['ArrowUp'] ? 1 : 0);
             if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-            // Network sync - send position and held item
+            // Network sync - get authoritative game state from server
             if (this.network.connected && this.player) {
                 const heldItemData = this.player.heldItem ? {
                     name: this.player.heldItem.name,
@@ -631,6 +631,7 @@ class Game {
                     heldItem: heldItemData
                 }).then(res => {
                     if (res && res.status === "success") {
+                        // Update players
                         for (let p of res.players) {
                             if (p.id !== this.myId && this.playersDict[p.id]) {
                                 this.playersDict[p.id].x = p.x;
@@ -645,6 +646,35 @@ class Game {
                                 } else {
                                     this.playersDict[p.id].heldItem = null;
                                 }
+                            }
+                        }
+                        
+                        // UPDATE: Use server's authoritative game state
+                        if (res.game_state) {
+                            const serverState = res.game_state;
+                            this.score = serverState.score;  // Allow negative scores
+                            this.gameTimer = serverState.game_timer;
+                            this.orders = serverState.orders;
+                            this.frame = serverState.frame;
+                            
+                            // Sync stations from server
+                            if (serverState.stations) {
+                                for (let stationName in serverState.stations) {
+                                    const serverStation = serverState.stations[stationName];
+                                    const clientStation = this.stations.find(s => s.name === stationName);
+                                    if (clientStation) {
+                                        clientStation.heldItem = serverStation.held_item ? 
+                                            this.deserializeItem(serverStation.held_item) : null;
+                                        clientStation.progress = serverStation.progress;
+                                        clientStation.isCooking = serverStation.is_cooking;
+                                        clientStation.vesselCount = serverStation.vessel_count;
+                                    }
+                                }
+                            }
+                            
+                            if (serverState.state === "LEVEL_COMPLETE") {
+                                this.gameState = "LEVEL_COMPLETE";
+                                this.showLevelComplete();
                             }
                         }
                     }
@@ -853,6 +883,15 @@ class Game {
             if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
         }
         return true;
+    }
+
+    deserializeItem(itemData) {
+        if (!itemData) return null;
+        const item = new Item(itemData.name, itemData.color, itemData.is_processed, itemData.is_vessel);
+        item.bundle = itemData.bundle || [];
+        item.dishName = itemData.dish_name;
+        item.dishColor = itemData.dish_color;
+        return item;
     }
 
     LEVEL_STAR_THRESHOLDS = LEVEL_STAR_THRESHOLDS;
