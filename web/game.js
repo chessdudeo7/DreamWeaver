@@ -222,10 +222,12 @@ class Station {
             this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, 1.0, isOnPlate);
         }
 
-        // Draw progress bar - shows for any station with active progress (Logic Filter, Dream Visualizer, etc)
+        // Draw progress bar - only for Logic Filter (during processing) or Dream Visualizer (while cooking)
         if (this.progress > 0 && this.progress < 1.0) {
-            drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
-            drawRect(ctx, this.x, this.y + this.h + 8, this.w * this.progress, 8, TEAL, 4);
+            if (this.name === "Logic Filter" || (this.name === "Dream Visualizer" && this.isCooking)) {
+                drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
+                drawRect(ctx, this.x, this.y + this.h + 8, this.w * this.progress, 8, TEAL, 4);
+            }
         }
     }
 
@@ -807,12 +809,9 @@ class Game {
                         pItem.dishColor = sItem.color;
                         s.heldItem = null;
                     }
-                } else if (!pItem.isVessel && sItem.isVessel) {
-                    if (pItem.isProcessed && !sItem.dishName) {
-                        if (pItem.bundle.length > 0) sItem.bundle.push(...pItem.bundle);
-                        else sItem.bundle.push(pItem.color);
-                        this.player.heldItem = null;
-                    } else if ((pItem.name in RECIPES || pItem.name === "Abstract Mush") && !sItem.bundle.length) {
+                } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName && !sItem.bundle.length) {
+                    if (pItem.isProcessed || pItem.name in RECIPES || pItem.name === "Abstract Mush") {
+                        // Processed item or recipe - put on plate as a dish
                         sItem.dishName = pItem.name;
                         sItem.dishColor = pItem.color;
                         this.player.heldItem = null;
