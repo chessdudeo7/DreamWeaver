@@ -213,13 +213,14 @@ class Station {
             }
         }
 
-        // Draw held item
+        // Draw held item - show clearly if on plate
         if (this.name === "Dream Visualizer" && this.heldItem && !this.isCooking) {
             const bounce = Math.sin(frame * 0.1) * 8;
             this.heldItem.draw(ctx, this.x + this.w / 2, this.y - 25 + bounce);
         } else if (this.heldItem) {
-            const isOnPlate = this.heldItem.dishName ? true : false;
-            this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, 1.0, isOnPlate);
+            // Draw items in crates/stations
+            const scale = this.heldItem.isVessel ? 1.5 : 1.0;  // Make vessels larger when holding items
+            this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, scale);
         }
 
         // Draw progress bar - only for Logic Filter (during processing) or Dream Visualizer (while cooking)
@@ -570,7 +571,7 @@ class Game {
             this.vesselRespawnTimers = this.vesselRespawnTimers.map(t => t - dt).filter(t => {
                 if (t <= 0) {
                     for (let s of this.stations) {
-                        if (s.name === "Vessel Return") s.vesselCount++;
+                        if (s.name === "Vessel Return" && s.vesselCount < 3) s.vesselCount++;
                     }
                     return false;
                 }
@@ -733,9 +734,21 @@ class Game {
                                     const serverStation = serverState.stations[stationName];
                                     const clientStation = this.stations.find(s => s.name === stationName);
                                     if (clientStation) {
+                                        // Preserve local vessel state (dishes on plates) when syncing
+                                        const localDishName = clientStation.heldItem?.dishName;
+                                        const localDishColor = clientStation.heldItem?.dishColor;
+                                        const localBundle = clientStation.heldItem?.bundle ? [...clientStation.heldItem.bundle] : [];
+                                        
                                         // Update station state from server
                                         clientStation.heldItem = serverStation.held_item ? 
                                             this.deserializeItem(serverStation.held_item) : null;
+                                        
+                                        // Restore local vessel state if it was preserved
+                                        if (clientStation.heldItem && clientStation.heldItem.isVessel) {
+                                            if (localDishName) clientStation.heldItem.dishName = localDishName;
+                                            if (localDishColor) clientStation.heldItem.dishColor = localDishColor;
+                                            if (localBundle.length > 0) clientStation.heldItem.bundle = localBundle;
+                                        }
                                         
                                         clientStation.progress = serverStation.progress;
                                         clientStation.isCooking = serverStation.is_cooking;
