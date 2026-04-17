@@ -147,21 +147,29 @@ class GameState:
         # Update stations
         for station_name, station in self.stations.items():
             # Logic Filter - continuous progress for whoever is using it
-            if station["name"] == "Logic Filter" and self.logic_filter_user and players_dict:
-                if self.logic_filter_user in players_dict:
-                    player = players_dict[self.logic_filter_user]
-                    # Only process if player has item AND item is not already processed
-                    if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
-                        station["progress"] += dt * 10.0  # ~0.1 seconds to complete
-                        if station["progress"] >= 1.0:
-                            # Mark item as processed (camelCase to match client format)
-                            player["heldItem"]["isProcessed"] = True
+            if station["name"] == "Logic Filter":
+                if self.logic_filter_user and players_dict:
+                    if self.logic_filter_user in players_dict:
+                        player = players_dict[self.logic_filter_user]
+                        # Only process if player has item AND item is not already processed
+                        if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
+                            # Reset progress if starting fresh
+                            if station["progress"] >= 1.0:
+                                station["progress"] = 0.0
+                            station["progress"] += dt * 10.0  # ~0.1 seconds to complete
+                            # Cap progress at 1.0 to ensure completion frame is visible
+                            if station["progress"] >= 1.0:
+                                station["progress"] = 1.0
+                                # Mark item as processed (camelCase to match client format)
+                                player["heldItem"]["isProcessed"] = True
+                                self.logic_filter_user = None
+                        else:
+                            # Player no longer has a valid item, stop processing
                             station["progress"] = 0.0
                             self.logic_filter_user = None
-                    else:
-                        # Player no longer has a valid item, stop processing
-                        station["progress"] = 0.0
-                        self.logic_filter_user = None
+                elif station["progress"] >= 1.0:
+                    # Reset progress only when no one is using it and it's at completion
+                    station["progress"] = 0.0
             
             if station["name"] == "Dream Visualizer" and station["is_cooking"]:
                 station["progress"] += 0.006

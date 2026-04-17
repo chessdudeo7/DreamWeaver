@@ -224,7 +224,7 @@ class Station {
         }
 
         // Draw progress bar - only for Logic Filter (during processing) or Dream Visualizer (while cooking)
-        if (this.progress > 0 && this.progress < 1.0) {
+        if (this.progress > 0 && this.progress <= 1.0) {
             if (this.name === "Logic Filter" || (this.name === "Dream Visualizer" && this.isCooking)) {
                 drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
                 drawRect(ctx, this.x, this.y + this.h + 8, this.w * this.progress, 8, TEAL, 4);
