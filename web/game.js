@@ -344,6 +344,8 @@ class Game {
         
         this.logicFilterActive = false; // Track if player is currently processing at Logic Filter
         this.lastInteractionTime = 0; // Track when we last interacted with a station
+        this.modifiedStations = new Set(); // Track which stations were modified locally to avoid overwriting
+        this.modifiedStationsTimeout = null; // Track timeout for clearing modified stations
 
         this.setupEventListeners();
     }
@@ -730,10 +732,15 @@ class Game {
                             
                             // Sync stations from server - only update if changed to reduce flashing
                             if (serverState.stations) {
+                                const timeSinceInteraction = Date.now() - this.lastInteractionTime;
                                 for (let stationName in serverState.stations) {
                                     const serverStation = serverState.stations[stationName];
                                     const clientStation = this.stations.find(s => s.name === stationName);
                                     if (clientStation) {
+                                        // Skip syncing recently modified stations to prevent overwriting local changes
+                                        if (timeSinceInteraction < 150 && this.modifiedStations.has(stationName)) {
+                                            continue;
+                                        }
                                         // Preserve local vessel state (dishes on plates) when syncing
                                         const localDishName = clientStation.heldItem?.dishName;
                                         const localDishColor = clientStation.heldItem?.dishColor;
@@ -798,6 +805,18 @@ class Game {
     handleStationInteraction(s) {
         // Track when we interact to avoid server overwriting our state immediately
         this.lastInteractionTime = Date.now();
+        
+        // Mark this station as modified locally
+        this.modifiedStations.add(s.name);
+        
+        // Clear any existing timeout and set a new one
+        if (this.modifiedStationsTimeout) {
+            clearTimeout(this.modifiedStationsTimeout);
+        }
+        this.modifiedStationsTimeout = setTimeout(() => {
+            this.modifiedStations.clear();
+            this.modifiedStationsTimeout = null;
+        }, 200);
         
         if (s.name === "Void Siphon" && this.player.heldItem) {
             if (this.player.heldItem.isVessel) {

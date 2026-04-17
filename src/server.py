@@ -153,9 +153,10 @@ class GameState:
                         player = players_dict[self.logic_filter_user]
                         # Only process if player has item AND item is not already processed
                         if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
-                            # Reset progress if starting fresh
+                            # Reset progress if starting fresh (e.g., a previous item just completed)
                             if station["progress"] >= 1.0:
                                 station["progress"] = 0.0
+                            # Increment progress
                             station["progress"] += dt * 10.0  # ~0.1 seconds to complete
                             # Cap progress at 1.0 to ensure completion frame is visible
                             if station["progress"] >= 1.0:
@@ -167,9 +168,10 @@ class GameState:
                             # Player no longer has a valid item, stop processing
                             station["progress"] = 0.0
                             self.logic_filter_user = None
-                elif station["progress"] >= 1.0:
-                    # Reset progress only when no one is using it and it's at completion
-                    station["progress"] = 0.0
+                else:
+                    # No one is using it - keep progress at 1.0 to avoid flashing
+                    # (progress will reset when a new player starts processing)
+                    pass
             
             if station["name"] == "Dream Visualizer" and station["is_cooking"]:
                 station["progress"] += 0.006
