@@ -607,7 +607,7 @@ class Game {
                         if (this.keys[' ']) {
                             s.progress += dt * 0.2; // 5 seconds to fill
                             if (s.progress >= 1.0) {
-                                s.progress = 0;
+                                s.progress = 1.0; // Keep bar at 100% to show completion
                                 this.player.heldItem.isProcessed = true;
                             }
                         } else {
@@ -843,8 +843,8 @@ class Game {
                     if (!pItem.isProcessed) {
                         sItem.bundle.push(pItem.color);
                         this.player.heldItem = null;
-                    } else if (pItem.name in RECIPES || pItem.name === "Abstract Mush") {
-                        // Processed item or cooked dish - can go on empty plate
+                    } else if (pItem.isProcessed) {
+                        // Processed item (from Logic Filter, Dream Visualizer, or cooked) - can go on empty plate
                         sItem.dishName = pItem.name;
                         sItem.dishColor = pItem.color;
                         this.player.heldItem = null;
