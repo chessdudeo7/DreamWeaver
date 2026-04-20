@@ -692,25 +692,16 @@ class Game {
                             if (p.id === this.myId && this.player) {
                                 // Update own player's held item from server
                                 // But be conservative if we just interacted - only update if server has different item
-                                if (timeSinceInteraction < 100) {
-                                    // Recent interaction - only sync if processed state changes
-                                    if (p.heldItem && this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
-                                        this.player.heldItem.isProcessed = p.heldItem.isProcessed;
-                                    }
-                                    // Don't overwrite our item if we just picked something up
-                                } else {
-                                    // Normal sync - trust server state
+                                if (p.heldItem && this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
+    // Same item - always trust the server's processed state (this is how Logic Filter completes)
+                                    this.player.heldItem.isProcessed = p.heldItem.isProcessed;
+                                } else if (timeSinceInteraction >= 100) {
+                                    // Different item and no recent interaction - trust server fully
                                     if (p.heldItem) {
-                                        if (this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
-                                            // Same item - preserve server's processed state
-                                            this.player.heldItem.isProcessed = p.heldItem.isProcessed;
-                                        } else {
-                                            // New item picked up
-                                            const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
-                                            item.bundle = p.heldItem.bundle || [];
-                                            item.dishName = p.heldItem.dishName;
-                                            this.player.heldItem = item;
-                                        }
+                                        const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
+                                        item.bundle = p.heldItem.bundle || [];
+                                        item.dishName = p.heldItem.dishName;
+                                        this.player.heldItem = item;
                                     } else {
                                         this.player.heldItem = null;
                                     }
@@ -887,6 +878,7 @@ class Game {
         } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
             s.vesselCount--;
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
+            this.totalVesselsInPlay++; // vessel is now actively in play (player's hands)
             // Don't increment totalVesselsInPlay here - it was already counted when vessel was returned to Vessel Return
         } else if (s.name === "Dream Visualizer") {
             if (s.heldItem && !s.isCooking) {
