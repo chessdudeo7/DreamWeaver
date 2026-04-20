@@ -77,7 +77,7 @@ class Item {
         this.bundle = [];
         this.dishName = null;
         this.dishColor = null;
-        this.rotationAngle = 0;  // For spinning animation when on plate
+        this.rotationAngle = 0;
     }
 
     draw(ctx, x, y, scale = 1.0, onPlate = false) {
@@ -92,17 +92,15 @@ class Item {
             ctx.stroke();
 
             if (this.dishName) {
-                // Draw cooked dish on plate (stays centered, smaller for visibility)
                 const dishRadius = Math.max(3, r * 0.6);
                 drawCircle(ctx, x, y - 8, dishRadius, this.dishColor);
                 drawCircle(ctx, x, y - 8, Math.max(1, dishRadius - 3), WHITE);
             } else if (this.bundle.length > 0) {
-                // Draw items orbiting on the plate - scale down for visibility when many items
                 for (let i = 0; i < this.bundle.length; i++) {
                     const angleStep = (2 * Math.PI) / this.bundle.length;
                     const speed = Date.now() * 0.005;
-                    const itemRadius = this.bundle.length > 2 ? 5 : 7; // Smaller radius if more items
-                    const orbitRadius = this.bundle.length > 2 ? 10 : 14; // Smaller orbit if more items
+                    const itemRadius = this.bundle.length > 2 ? 5 : 7;
+                    const orbitRadius = this.bundle.length > 2 ? 10 : 14;
                     const ox = Math.cos(i * angleStep + speed) * orbitRadius;
                     const oy = Math.sin(i * angleStep + speed) * orbitRadius;
                     drawCircle(ctx, x + ox, y - 8 + oy, itemRadius, this.bundle[i]);
@@ -110,7 +108,6 @@ class Item {
                 }
             }
         } else {
-            // Regular orb
             ctx.strokeStyle = rgbToString(this.color);
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -118,15 +115,11 @@ class Item {
             ctx.stroke();
 
             drawCircle(ctx, x, y, r, this.color);
-            
-            if (this.isProcessed) {
-                // Processed - no white hue, just solid color
-            } else {
-                // Unprocessed - white hue
+
+            if (!this.isProcessed) {
                 drawCircle(ctx, x, y, r / 2, WHITE);
             }
 
-            // Bundle items orbit the orb
             if (this.bundle.length > 0) {
                 for (let i = 0; i < this.bundle.length; i++) {
                     const angleStep = (2 * Math.PI) / this.bundle.length;
@@ -158,56 +151,47 @@ class Station {
 
     draw(ctx, frame) {
         const borderColor = this.isHighlighted ? TEAL : WHITE;
-        
-        // Draw shadow
+
         drawRect(ctx, this.x + 5, this.y + 5, this.w, this.h, [25, 20, 45], 12);
-        
-        // Draw main rect
         drawRect(ctx, this.x, this.y, this.w, this.h, this.color, 10);
 
-        // Draw highlight tint
         if (this.isHighlighted) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
             roundRect(ctx, this.x, this.y, this.w, this.h, 10);
             ctx.fill();
         }
 
-        // Draw border
         ctx.strokeStyle = rgbToString(borderColor);
         ctx.lineWidth = 2;
         roundRect(ctx, this.x, this.y, this.w, this.h, 10);
         ctx.stroke();
 
-        // Draw text
         if (!this.name.includes("Crate")) {
-            ctx.save(); // Save canvas state
+            ctx.save();
             ctx.font = 'bold 12px Arial';
             ctx.fillStyle = rgbToString(this.name === "Void Siphon" || this.name === "Vessel Return" ? WHITE : [20, 20, 20]);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            
+
             const words = this.name.split(' ');
             const lineHeight = 14;
             const totalHeight = words.length * lineHeight;
             const startY = this.y + this.h / 2 - totalHeight / 2;
-            
+
             for (let i = 0; i < words.length; i++) {
                 ctx.fillText(words[i], this.x + this.w / 2, startY + i * lineHeight, this.w - 10);
             }
-            ctx.restore(); // Restore canvas state
+            ctx.restore();
         }
 
-        // Draw vessel count
         if (this.name === "Vessel Return") {
             for (let i = 0; i < this.vesselCount; i++) {
-                // Draw empty plate outline in white, positioned lower
                 ctx.strokeStyle = rgbToString(WHITE);
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.ellipse(this.x + this.w / 2, this.y + this.h / 2 + 20 - i * 8, 22, 12, 0, 0, Math.PI * 2);
                 ctx.stroke();
-                
-                // Add a subtle inner line to show it's a plate
+
                 ctx.strokeStyle = rgbToString([200, 200, 200]);
                 ctx.lineWidth = 1;
                 ctx.beginPath();
@@ -216,17 +200,14 @@ class Station {
             }
         }
 
-        // Draw held item - show clearly if on plate
         if (this.name === "Dream Visualizer" && this.heldItem && !this.isCooking) {
             const bounce = Math.sin(frame * 0.1) * 8;
             this.heldItem.draw(ctx, this.x + this.w / 2, this.y - 25 + bounce);
         } else if (this.heldItem) {
-            // Draw items in crates/stations
-            const scale = this.heldItem.isVessel ? 1.5 : 1.0;  // Make vessels larger when holding items
+            const scale = this.heldItem.isVessel ? 1.5 : 1.0;
             this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, scale);
         }
 
-        // Draw progress bar - only for Logic Filter (during processing) or Dream Visualizer (while cooking)
         if (this.progress > 0 && this.progress <= 1.0) {
             if (this.name === "Logic Filter" || (this.name === "Dream Visualizer" && this.isCooking)) {
                 drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
@@ -267,7 +248,6 @@ class Player {
 
         const speed = this.isDashing ? this.dashSpeed : this.baseSpeed;
 
-        // Move X
         this.x += dx * speed;
         for (let s of stations) {
             if (this.collidesWithStation(s)) {
@@ -276,7 +256,6 @@ class Player {
             }
         }
 
-        // Move Y
         this.y += dy * speed;
         for (let s of stations) {
             if (this.collidesWithStation(s)) {
@@ -285,7 +264,6 @@ class Player {
             }
         }
 
-        // Clamp to bounds
         this.x = Math.max(0, Math.min(WIDTH - this.w, this.x));
         this.y = Math.max(95, Math.min(HEIGHT - 155, this.y));
     }
@@ -340,15 +318,16 @@ class Game {
         this.keys = {};
         this.mousePos = { x: 0, y: 0 };
         this.mouseClicked = false;
-        this.spacebarPressed = false; // Track spacebar state to prevent double-triggers
-        
+        this.spacebarPressed = false;
+
         this.lastSyncTime = 0;
-        this.syncInterval = 16; // ms between syncs (16ms ≈ 62 Hz) - faster sync for responsive gameplay
-        
-        this.currentProcessorStation = null; // Track which processor station player is using (Logic Filter or Dream Visualizer)
-        this.lastInteractionTime = 0; // Track when we last interacted with a station
-        this.modifiedStations = new Set(); // Track which stations were modified locally to avoid overwriting
-        this.modifiedStationsTimeout = null; // Track timeout for clearing modified stations
+        this.syncInterval = 16;
+
+        this.currentProcessorStation = null;
+        this.lastInteractionTime = 0;
+        this.lastDeliveryTime = 0; // Track last delivery to debounce server sync of score/orders
+        this.modifiedStations = new Set();
+        this.modifiedStationsTimeout = null;
 
         this.setupEventListeners();
     }
@@ -356,7 +335,6 @@ class Game {
     setupEventListeners() {
         document.addEventListener('keydown', (e) => {
             this.keys[e.key] = true;
-            // Prevent default behavior for space and arrow keys
             if (e.key === ' ' || ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                 e.preventDefault();
             }
@@ -369,14 +347,11 @@ class Game {
         });
         document.addEventListener('click', () => this.mouseClicked = true);
 
-        // UI Button listeners
         document.getElementById('hostBtn').addEventListener('click', () => {
-            // Hide room code when hosting
             document.getElementById('roomCode').style.display = 'none';
             this.hostGame();
         });
         document.getElementById('joinBtn').addEventListener('click', () => {
-            // Show room code input when joining
             const roomCodeInput = document.getElementById('roomCode');
             if (roomCodeInput.style.display === 'none') {
                 roomCodeInput.style.display = 'block';
@@ -388,7 +363,6 @@ class Game {
         document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
         document.getElementById('nextLevelBtn').addEventListener('click', () => this.nextLevel());
 
-        // Input field listeners
         document.getElementById('playerName').addEventListener('input', (e) => {
             this.playerName = e.target.value.substring(0, 12);
         });
@@ -436,7 +410,7 @@ class Game {
     }
 
     async nextLevel() {
-        const stars = this.LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
+        const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
         if (stars >= 1 && this.currentLevel < 2) {
             this.loadLevel(2);
         } else {
@@ -458,7 +432,7 @@ class Game {
             if (res && res.status === "success") {
                 this.connectedPlayers = res.players;
                 document.getElementById('playerCountDisplay').textContent = `Players (${this.connectedPlayers.length}/4):`;
-                
+
                 const playersList = document.getElementById('playersList');
                 playersList.innerHTML = '';
                 for (let p of this.connectedPlayers) {
@@ -488,11 +462,11 @@ class Game {
     loadLevel(levelNum) {
         clearInterval(this.lobbyUpdateInterval);
         document.getElementById('lobbyUI').style.display = 'none';
-        
+        document.getElementById('levelCompleteUI').style.display = 'none';
+
         this.currentLevel = levelNum;
         this.gameState = "PLAYING";
 
-        // Setup players dict
         this.playersDict = {};
         for (let p of this.connectedPlayers) {
             this.playersDict[p.id] = new Player(WIDTH / 2, HEIGHT / 2, p.color);
@@ -507,9 +481,10 @@ class Game {
         this.gameTimer = 120;
         this.frame = 0;
         this.spawnTick = 0;
-        this.totalVesselsInPlay = 0; // Reset vessel count for new level
+        this.totalVesselsInPlay = 0;
+        this.lastDeliveryTime = 0;
+        this.modifiedStations.clear();
 
-        // Create stations
         this.stations = [];
         if (levelNum === 1) {
             this.stations = [
@@ -541,7 +516,6 @@ class Game {
             ];
         }
 
-        // Setup crates with vessels
         const crateStations = this.stations.filter(s => s.name.includes("Crate"));
         for (let i = 0; i < 3; i++) {
             crateStations[i].heldItem = new Item("Vessel", WHITE, false, true);
@@ -574,7 +548,7 @@ class Game {
 
             if (this.redFlash > 0) this.redFlash -= dt;
 
-            // Update vessel timers
+            // Vessel respawn timers — count vessels directly to avoid drift
             this.vesselRespawnTimers = this.vesselRespawnTimers.map(t => t - dt).filter(t => {
                 if (t <= 0) {
                     const vesselsInCrates = this.stations.filter(s => s.name.includes("Crate") && s.heldItem?.isVessel).length;
@@ -604,37 +578,38 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
-                    // Logic Filter - client handles progress and completion directly
-                    if (s.name === "Logic Filter" && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed && this.keys[' ']) {
-                        this.currentProcessorStation = "Logic Filter"; // Mark that this player is using Logic Filter
-                        s.progress += dt * 0.2; // 5 seconds to fill
+
+                    // Logic Filter — hold space to process
+                    if (s.name === "Logic Filter" && this.player.heldItem &&
+                        !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed && this.keys[' ']) {
+                        this.currentProcessorStation = "Logic Filter";
+                        s.progress += dt * 0.2;
                         if (s.progress >= 1.0) {
-                            s.progress = 1.0; // Keep bar at 100% to show completion
+                            s.progress = 1.0;
                             this.player.heldItem.isProcessed = true;
                         }
                     } else {
-                        // Not actively processing - reset bar and release processor
                         if (s.name === "Logic Filter") {
                             this.currentProcessorStation = null;
-                            s.progress = 0; // Bar disappears when not processing
+                            s.progress = 0;
                         }
                     }
                 } else {
                     s.isHighlighted = false;
-                    if (s.name === "Logic Filter") s.progress = 0; // reset if player walks away
-                    // Release processor if player walks away from it
-                    if ((s.name === "Logic Filter" || s.name === "Dream Visualizer") && this.currentProcessorStation === s.name) {
+                    if (s.name === "Logic Filter") s.progress = 0;
+                    if ((s.name === "Logic Filter" || s.name === "Dream Visualizer") &&
+                        this.currentProcessorStation === s.name) {
                         this.currentProcessorStation = null;
                     }
                 }
 
-                // AFTER - auto-cooks once started, player can walk away
+                // Dream Visualizer — auto-cooks once started, player can walk away
                 if (s.name === "Dream Visualizer" && s.isCooking) {
                     s.progress += dt * 0.2;
                     if (s.progress >= 1.0) {
                         let res = "Abstract Mush";
                         let resColor = [150, 0, 0];
-                        if (s.heldItem.bundle.length === 2) {
+                        if (s.heldItem && s.heldItem.bundle.length === 2) {
                             for (let recipeName in RECIPES) {
                                 const recipe = RECIPES[recipeName];
                                 const bundleSorted = [...s.heldItem.bundle].map(c => JSON.stringify(c)).sort();
@@ -658,12 +633,11 @@ class Game {
             const dy = (this.keys['ArrowDown'] ? 1 : 0) - (this.keys['ArrowUp'] ? 1 : 0);
             if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-            // Network sync - get authoritative game state from server
-            // Higher frequency sync (16ms) for responsive multiplayer
+            // Network sync
             const now = Date.now();
             if (this.network.connected && this.player && (now - this.lastSyncTime) >= this.syncInterval) {
                 this.lastSyncTime = now;
-                
+
                 const heldItemData = this.player.heldItem ? {
                     name: this.player.heldItem.name,
                     color: this.player.heldItem.color,
@@ -672,7 +646,7 @@ class Game {
                     bundle: this.player.heldItem.bundle,
                     dishName: this.player.heldItem.dishName
                 } : null;
-                
+
                 this.network.send({
                     action: "SYNC",
                     x: Math.round(this.player.x),
@@ -682,17 +656,15 @@ class Game {
                 }).then(res => {
                     if (res && res.status === "success") {
                         const timeSinceInteraction = Date.now() - this.lastInteractionTime;
-                        
-                        // Update players
+
+                        // Sync other players
                         for (let p of res.players) {
                             if (p.id === this.myId && this.player) {
-                                // Update own player's held item from server
-                                // But be conservative if we just interacted - only update if server has different item
-                                if (p.heldItem && this.player.heldItem && p.heldItem.name === this.player.heldItem.name) {
-    // Same item - always trust the server's processed state (this is how Logic Filter completes)
+                                // Own player — only sync isProcessed to catch Logic Filter completion
+                                if (p.heldItem && this.player.heldItem &&
+                                    p.heldItem.name === this.player.heldItem.name) {
                                     this.player.heldItem.isProcessed = p.heldItem.isProcessed;
                                 } else if (timeSinceInteraction >= 100) {
-                                    // Different item and no recent interaction - trust server fully
                                     if (p.heldItem) {
                                         const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
                                         item.bundle = p.heldItem.bundle || [];
@@ -705,8 +677,6 @@ class Game {
                             } else if (p.id !== this.myId && this.playersDict[p.id]) {
                                 this.playersDict[p.id].x = p.x;
                                 this.playersDict[p.id].y = p.y;
-                                
-                                // Sync held items
                                 if (p.heldItem) {
                                     const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
                                     item.bundle = p.heldItem.bundle || [];
@@ -717,54 +687,56 @@ class Game {
                                 }
                             }
                         }
-                        
-                        // UPDATE: Use server's authoritative game state
+
+                        // Sync authoritative game state
                         if (res.game_state) {
                             const serverState = res.game_state;
-                            this.score = serverState.score;  // Allow negative scores
                             this.gameTimer = serverState.game_timer;
-                            this.orders = serverState.orders;
                             this.frame = serverState.frame;
-                            
-                            // Sync stations from server - only update if changed to reduce flashing
+
+                            // Only sync score/orders if no recent local delivery
+                            // (DELIVER action keeps these authoritative for other players)
+                            if (Date.now() - this.lastDeliveryTime > 500) {
+                                this.score = serverState.score;
+                                this.orders = serverState.orders;
+                            }
+
+                            // Sync stations — skip protected ones
                             if (serverState.stations) {
                                 for (let stationName in serverState.stations) {
                                     const serverStation = serverState.stations[stationName];
                                     const clientStation = this.stations.find(s => s.name === stationName);
-                                    if (clientStation) {
-                                        // Skip syncing recently modified stations to prevent overwriting local changes
-                                        if (this.modifiedStations.has(stationName)) {
-                                            continue;
-                                        }
-                                        // Preserve local vessel state (dishes on plates) when syncing
-                                        const localDishName = clientStation.heldItem?.dishName;
-                                        const localDishColor = clientStation.heldItem?.dishColor;
-                                        const localBundle = clientStation.heldItem?.bundle ? [...clientStation.heldItem.bundle] : [];
-                                        
-                                        // Update station state from server
-                                        clientStation.heldItem = serverStation.held_item ? 
-                                            this.deserializeItem(serverStation.held_item) : null;
-                                        
-                                        // Restore local vessel state if it was preserved
-                                        if (clientStation.heldItem && clientStation.heldItem.isVessel) {
-                                            if (localDishName) clientStation.heldItem.dishName = localDishName;
-                                            if (localDishColor) clientStation.heldItem.dishColor = localDishColor;
-                                            if (localBundle.length > 0) clientStation.heldItem.bundle = localBundle;
-                                        }
-                                        
-                                        // Don't sync progress for Logic Filter - client handles it locally
-                                        if (clientStation.name !== "Logic Filter" && clientStation.name !== "Dream Visualizer") {
-                                            clientStation.progress = serverStation.progress;
-                                        }
-                                        if (clientStation.name !== "Dream Visualizer") {
-                                            clientStation.isCooking = serverStation.is_cooking;
-                                        }
-                                        // Cap vessel count at 3 (only 3 vessels available per level)
-                                        clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
+                                    if (!clientStation) continue;
+
+                                    // Skip stations protected from server overwrite
+                                    if (this.modifiedStations.has(stationName)) continue;
+
+                                    // Preserve local vessel state when syncing
+                                    const localDishName = clientStation.heldItem?.dishName;
+                                    const localDishColor = clientStation.heldItem?.dishColor;
+                                    const localBundle = clientStation.heldItem?.bundle ? [...clientStation.heldItem.bundle] : [];
+
+                                    clientStation.heldItem = serverStation.held_item ?
+                                        this.deserializeItem(serverStation.held_item) : null;
+
+                                    if (clientStation.heldItem && clientStation.heldItem.isVessel) {
+                                        if (localDishName) clientStation.heldItem.dishName = localDishName;
+                                        if (localDishColor) clientStation.heldItem.dishColor = localDishColor;
+                                        if (localBundle.length > 0) clientStation.heldItem.bundle = localBundle;
                                     }
+
+                                    // Logic Filter and Dream Visualizer progress/cooking managed client-side
+                                    if (clientStation.name !== "Logic Filter" && clientStation.name !== "Dream Visualizer") {
+                                        clientStation.progress = serverStation.progress;
+                                    }
+                                    if (clientStation.name !== "Dream Visualizer") {
+                                        clientStation.isCooking = serverStation.is_cooking;
+                                    }
+
+                                    clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
                                 }
                             }
-                            
+
                             if (serverState.state === "LEVEL_COMPLETE") {
                                 this.gameState = "LEVEL_COMPLETE";
                                 this.showLevelComplete();
@@ -774,19 +746,18 @@ class Game {
                 });
             }
 
-            // Handle space bar interactions - only trigger on key press (not while held)
+            // Spacebar interactions — only trigger on key-down, not hold
             const spacebarDown = this.keys[' '];
             if (spacebarDown && !this.spacebarPressed) {
-                // Spacebar just pressed (transitioned from false to true)
                 for (let s of this.stations) {
                     if (s.isHighlighted) {
                         this.handleStationInteraction(s);
                     }
                 }
             }
-            this.spacebarPressed = spacebarDown; // Update state for next frame
+            this.spacebarPressed = spacebarDown;
 
-            // Update orders
+            // Update orders locally (expire timed-out ones)
             this.orders = this.orders.filter(o => {
                 o.time -= dt;
                 if (o.time <= 0) {
@@ -803,33 +774,29 @@ class Game {
     }
 
     handleStationInteraction(s) {
-        // Track when we interact to avoid server overwriting our state immediately
         this.lastInteractionTime = Date.now();
-        
-        // Check if this is a Dream Visualizer cooking action
+
+        // Check if this is a Dream Visualizer cooking action — don't add to modifiedStations
+        // so the server can sync the cooking state to other players
         let isCookingAction = false;
         if (s.name === "Dream Visualizer" && this.player.heldItem && !s.isCooking) {
-            if ((!this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) ||
-                (this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0)) {
+            if (this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) {
                 isCookingAction = true;
             }
         }
-        
-        // Mark this station as modified locally, but NOT if starting cooking
-        // (server needs to sync cooking state to know about the vessel bundle)
+
         if (!isCookingAction) {
             this.modifiedStations.add(s.name);
-            
-            // Clear any existing timeout and set a new one
-            if (this.modifiedStationsTimeout) {
-                clearTimeout(this.modifiedStationsTimeout);
-            }
+            if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
             this.modifiedStationsTimeout = setTimeout(() => {
-                this.modifiedStations.clear();
+                // Don't clear Dream Visualizer from here — it clears when orb is picked up
+                this.modifiedStations.forEach(name => {
+                    if (name !== "Dream Visualizer") this.modifiedStations.delete(name);
+                });
                 this.modifiedStationsTimeout = null;
             }, 200);
         }
-        
+
         if (s.name === "Void Siphon" && this.player.heldItem) {
             if (this.player.heldItem.isVessel) {
                 this.player.heldItem.bundle = [];
@@ -838,6 +805,7 @@ class Game {
             } else {
                 this.player.heldItem = null;
             }
+
         } else if (s.name.includes("Crate")) {
             if (this.player.heldItem && s.heldItem) {
                 const pItem = this.player.heldItem;
@@ -854,14 +822,10 @@ class Game {
                         s.heldItem = null;
                     }
                 } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
-                    // Player has orb, station has vessel with no cooked dish
-                    // Add both unprocessed and processed orbs to bundle (allows multiple orbs on one plate)
                     if (!pItem.isProcessed || (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush")) {
-                        // Add unprocessed orbs OR processed orbs that aren't finished dishes
                         sItem.bundle.push(pItem.color);
                         this.player.heldItem = null;
                     } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
-                        // Only set as dish if it's an actual cooked item from Dream Visualizer
                         sItem.dishName = pItem.name;
                         sItem.dishColor = pItem.color;
                         this.player.heldItem = null;
@@ -874,30 +838,36 @@ class Game {
                 s.heldItem = this.player.heldItem;
                 this.player.heldItem = null;
             }
+
         } else if (s.name.includes("Dispenser") && !this.player.heldItem) {
             const color = STATION_COLORS[s.name];
             this.player.heldItem = new Item(s.name.split(' ')[0], color);
+
         } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
             s.vesselCount--;
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
-            // Don't increment totalVesselsInPlay here - it was already counted when vessel was returned to Vessel Return
+            // totalVesselsInPlay already includes this vessel from respawn
+
         } else if (s.name === "Dream Visualizer") {
             if (s.isCooking) return;
 
-            // AFTER - unprotect Dream Visualizer once player picks up the orb
             if (s.heldItem) {
+                // Finished dream orb ready — pick it up
                 if (!this.player.heldItem) {
                     this.player.heldItem = s.heldItem;
                     s.heldItem = null;
                     this.modifiedStations.delete("Dream Visualizer");
-                } else if (this.player.heldItem.isVessel && !this.player.heldItem.dishName && !this.player.heldItem.bundle.length) {
+                } else if (this.player.heldItem.isVessel &&
+                           !this.player.heldItem.dishName &&
+                           !this.player.heldItem.bundle.length) {
+                    // Load dream orb directly onto empty vessel
                     this.player.heldItem.dishName = s.heldItem.name;
                     this.player.heldItem.dishColor = s.heldItem.color;
                     s.heldItem = null;
                     this.modifiedStations.delete("Dream Visualizer");
                 }
             } else if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
-                // Load orbs in and start cooking
+                // Load orbs into visualizer, keep empty plate in hand
                 const dummy = new Item("Bundle", WHITE, true);
                 dummy.bundle = [...this.player.heldItem.bundle];
                 s.heldItem = dummy;
@@ -907,29 +877,33 @@ class Game {
                 this.player.heldItem.dishName = null;
                 this.player.heldItem.dishColor = null;
 
-                // Protect Dream Visualizer from server overwrites for the entire cook duration (6 seconds to be safe)
+                // Protect Dream Visualizer from server overwrites until orb is picked up
                 this.modifiedStations.add("Dream Visualizer");
                 if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
                 this.modifiedStationsTimeout = null;
             }
+
         } else if (s.name === "Gateway" && this.player.heldItem) {
-            // Accept vessel with a loaded dream orb dish
+            // Accept a vessel with a loaded dream orb, or a raw dream orb directly
             const vesselWithDish = this.player.heldItem.isVessel && this.player.heldItem.dishName;
-            // Accept a raw dream orb (directly from Dream Visualizer)
-            const rawDreamOrb = !this.player.heldItem.isVessel && this.player.heldItem.isProcessed && this.player.heldItem.name in RECIPES;
+            const rawDreamOrb = !this.player.heldItem.isVessel &&
+                                this.player.heldItem.isProcessed &&
+                                this.player.heldItem.name in RECIPES;
 
             if (vesselWithDish || rawDreamOrb) {
                 const dishName = vesselWithDish ? this.player.heldItem.dishName : this.player.heldItem.name;
-                let delivered = false;
+
+                // Optimistic local update for instant feedback
+                let localDelivered = false;
                 for (let i = 0; i < this.orders.length; i++) {
                     if (this.orders[i].name === dishName) {
                         this.score += (20 + Math.floor(this.orders[i].time / 2));
                         this.orders.splice(i, 1);
-                        delivered = true;
+                        localDelivered = true;
                         break;
                     }
                 }
-                if (!delivered) {
+                if (!localDelivered) {
                     this.score = Math.max(0, this.score - 15);
                     this.redFlash = 0.2;
                 }
@@ -938,16 +912,34 @@ class Game {
                     this.totalVesselsInPlay--;
                 }
                 this.player.heldItem = null;
+                this.lastDeliveryTime = Date.now();
+
+                // Send delivery to server so all clients get the authoritative update
+                if (this.network.connected) {
+                    this.network.send({
+                        action: "DELIVER",
+                        dish_name: dishName,
+                        is_vessel: vesselWithDish
+                    }).then(res => {
+                        if (res && res.status === "success") {
+                            // Reconcile with server's authoritative score and orders
+                            this.score = res.score;
+                            this.orders = res.orders;
+                            if (!res.delivered) this.redFlash = 0.2;
+                        }
+                    });
+                }
             }
         }
     }
+
     showLevelComplete() {
         document.getElementById('levelCompleteUI').style.display = 'flex';
         const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
         const msg = stars >= 1 ? `LEVEL ${this.currentLevel} COMPLETE` : `LEVEL ${this.currentLevel} FAILED`;
         document.getElementById('levelResultText').textContent = msg;
         document.getElementById('scoreDisplay').textContent = `Final Score: ${this.score}`;
-        
+
         let starsDisplay = '';
         for (let i = 0; i < 3; i++) {
             starsDisplay += stars > i ? '★' : '☆';
@@ -959,25 +951,20 @@ class Game {
     }
 
     draw() {
-        // Clear canvas
         this.ctx.fillStyle = rgbToString(BLACK);
         this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
         if (this.gameState === "PLAYING") {
-            // Draw stations
             for (let s of this.stations) {
                 s.draw(this.ctx, this.frame);
             }
 
-            // Draw players
             for (let p of Object.values(this.playersDict)) {
                 p.draw(this.ctx);
             }
 
-            // Draw HUD background
             drawRect(this.ctx, 0, 0, WIDTH, 95, [30, 30, 50]);
 
-            // Draw orders
             for (let i = 0; i < this.orders.length; i++) {
                 const o = this.orders[i];
                 const tx = 10 + i * 175;
@@ -996,13 +983,11 @@ class Game {
                 drawRect(this.ctx, tx + 8, 62, 150 * pct, 6, barColor, 3);
             }
 
-            // Draw red flash
             if (this.redFlash > 0) {
                 this.ctx.fillStyle = `rgba(255, 0, 0, ${(this.redFlash / 0.2) * 0.6})`;
                 this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
             }
 
-            // Draw HUD text
             this.ctx.font = 'bold 28px Arial';
             this.ctx.fillStyle = rgbToString(GOLD);
             this.ctx.textAlign = 'right';
@@ -1028,8 +1013,8 @@ class Game {
     itemsEqual(item1, item2) {
         if (item1 === null && item2 === null) return true;
         if (item1 === null || item2 === null) return false;
-        return item1.name === item2.name && 
-               item1.isProcessed === item2.isProcessed && 
+        return item1.name === item2.name &&
+               item1.isProcessed === item2.isProcessed &&
                item1.isVessel === item2.isVessel &&
                this.arraysEqual(item1.bundle || [], item2.bundle || []);
     }
@@ -1051,7 +1036,7 @@ let game;
 
 async function main() {
     game = new Game();
-    
+
     try {
         await game.network.connect();
         console.log('Connected to server');

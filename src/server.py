@@ -29,8 +29,8 @@ STATION_COLORS = {
 }
 
 rooms = {}
-client_to_room = {}  # Track which room each client is in
-room_connections = {}  # Track websocket connections per room
+client_to_room = {}
+room_connections = {}
 
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
@@ -46,15 +46,14 @@ class GameState:
         self.orders = []
         self.stations = {}
         self.players = {}
-        self.station_locks = {}  # Track which player is using each station
-        self.vessel_respawn_timers = {}  # Track vessel respawn timers per player
+        self.station_locks = {}
+        self.vessel_respawn_timers = {}
         self.last_update_time = time()
-        
+
         self._create_stations(level)
         self._spawn_initial_orders()
-    
+
     def _create_stations(self, level):
-        """Create stations for the level"""
         station_configs = []
         if level == 1:
             station_configs = [
@@ -84,7 +83,7 @@ class GameState:
                 ("Crate 2", 450, 320, 60, 60),
                 ("Crate 3", 520, 320, 60, 60)
             ]
-        
+
         for name, x, y, w, h in station_configs:
             self.stations[name] = {
                 "name": name,
@@ -96,8 +95,7 @@ class GameState:
                 "vessel_count": 0
             }
             self.station_locks[name] = None
-        
-        # Setup crates with vessels
+
         for i in range(3):
             crate_name = f"Crate {i+1}"
             self.stations[crate_name]["held_item"] = {
@@ -109,55 +107,75 @@ class GameState:
                 "dish_name": None,
                 "dish_color": None
             }
-    
+
     def _spawn_initial_orders(self):
         for _ in range(3):
             self._add_order()
-    
+
     def _add_order(self):
         if len(self.orders) >= 5:
             return
         names = list(RECIPES.keys())
-        name = names[random.randint(0, len(names)-1)]
+        name = names[random.randint(0, len(names) - 1)]
         self.orders.append({
             "name": name,
             "time": 60.0,
             "max": 60.0,
             "recipe": RECIPES[name]
         })
-    
+
     def update(self, dt, players_dict=None):
-        """Update game state"""
         self.game_timer -= dt
         if self.game_timer <= 0:
             self.state = "LEVEL_COMPLETE"
-        
+
+        # Handle vessel respawn timers
+        expired = []
+        for pid, t in self.vessel_respawn_timers.items():
+            self.vessel_respawn_timers[pid] = t - dt
+            if self.vessel_respawn_timers[pid] <= 0:
+                expired.append(pid)
+                # Count vessels currently in play
+                vessels_in_stations = sum(
+                    1 for s in self.stations.values()
+                    if s.get("held_item") and s["held_item"].get("is_vessel")
+                )
+                vessels_at_return = self.stations.get("Vessel Return", {}).get("vessel_count", 0)
+                if vessels_in_stations + vessels_at_return < 3:
+                    if "Vessel Return" in self.stations:
+                        self.stations["Vessel Return"]["vessel_count"] = \
+                            self.stations["Vessel Return"].get("vessel_count", 0) + 1
+        for pid in expired:
+            del self.vessel_respawn_timers[pid]
+
         self.frame += 1
         self.spawn_tick += dt
         if self.spawn_tick > 15 and len(self.orders) < 5:
             self._add_order()
             self.spawn_tick = 0
-        
-        # Update orders
-        self.orders = [o for o in self.orders if o["time"] > 0]
+
+        # Update orders - expire timed-out ones
+        remaining = []
         for o in self.orders:
             o["time"] -= dt
             if o["time"] <= 0:
-                self.score -= 20  # Can go negative!
-        
+                self.score -= 20
+            else:
+                remaining.append(o)
+        self.orders = remaining
+
         # Update stations
         for station_name, station in self.stations.items():
             if station["name"] == "Dream Visualizer" and station["is_cooking"]:
                 station["progress"] += 0.006
                 if station["progress"] >= 1.0:
-                    # Finalize recipe
                     res_name = "Abstract Mush"
                     res_color = [150, 0, 0]
                     if station["held_item"] and len(station["held_item"].get("bundle", [])) == 2:
                         for recipe_name, recipe_colors in RECIPES.items():
                             if sorted([str(c) for c in station["held_item"]["bundle"]]) == sorted([str(c) for c in recipe_colors]):
                                 res_name = recipe_name
-                                res_color = [255, 255, 255]
+                                res_color = [180, 70, 255]
                                 break
                     station["held_item"] = {
                         "name": res_name,
@@ -171,7 +189,6 @@ class GameState:
                     station["progress"] = 0
 
     def to_dict(self):
-        """Serialize state to send to clients"""
         return {
             "state": self.state,
             "score": self.score,
@@ -182,11 +199,34 @@ class GameState:
             "station_locks": self.station_locks
         }
 
+
+async def broadcast_room(current_room, rooms, room_connections):
+    """Broadcast current game state to all clients in a room."""
+    if current_room not in room_connections:
+        return
+    game_state = rooms[current_room].get("game_state")
+    if not game_state:
+        return
+    msg = json.dumps({
+        "status": "success",
+        "players": list(rooms[current_room]["players_dict"].values()),
+        "game_state": game_state.to_dict()
+    })
+    disconnected = []
+    for conn in room_connections[current_room]:
+        try:
+            await conn.send(msg)
+        except websockets.exceptions.ConnectionClosed:
+            disconnected.append(conn)
+    for conn in disconnected:
+        room_connections[current_room].remove(conn)
+
+
 async def handle_client(websocket):
     client_id = id(websocket)
     current_room = None
     game_state = None
-    
+
     try:
         async for message in websocket:
             request = json.loads(message)
@@ -198,7 +238,7 @@ async def handle_client(websocket):
                 code = generate_code()
                 color = PLAYER_COLORS[0]
                 rooms[code] = {
-                    "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}], 
+                    "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}],
                     "state": "LOBBY",
                     "game_state": None,
                     "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
@@ -230,7 +270,7 @@ async def handle_client(websocket):
 
             elif action == "GET_LOBBY":
                 if current_room and current_room in rooms:
-                    response = {"status": "success", "action": "LOBBY_UPDATE", 
+                    response = {"status": "success", "action": "LOBBY_UPDATE",
                                 "players": rooms[current_room]["players"],
                                 "game_started": rooms[current_room]["state"] == "PLAYING"}
 
@@ -239,55 +279,46 @@ async def handle_client(websocket):
                     rooms[current_room]["state"] = "PLAYING"
                     rooms[current_room]["game_state"] = GameState(1)
                     response = {"status": "success", "action": "GAME_STARTED"}
-            
+
             elif action == "SYNC":
                 if current_room and current_room in rooms:
                     game_state = rooms[current_room]["game_state"]
                     if game_state:
-                        # Update player position and item
+                        # Update player position and held item
                         for p in rooms[current_room]["players_dict"].values():
                             if p["id"] == client_id:
                                 p["x"] = request.get("x", p["x"])
                                 p["y"] = request.get("y", p["y"])
                                 p["heldItem"] = request.get("heldItem")
                                 break
-                        
-                        # Check if player is trying to use a locked processor station
-                        # Processors are Logic Filter and Dream Visualizer - only one player can use at a time
+
+                        # Handle processor station locking
                         processor_stations = ["Logic Filter", "Dream Visualizer"]
-                        player_station = request.get("interact_station")  # Tells server which station player is interacting with
-                        
-                        # First, release any processors this player was using if they're no longer using them
+                        player_station = request.get("interact_station")
+
                         for station_name in processor_stations:
                             if game_state.station_locks.get(station_name) == client_id and station_name != player_station:
                                 game_state.station_locks[station_name] = None
-                        
-                        # Then, try to acquire lock on the processor if they're using one
+
                         if player_station and player_station in processor_stations:
                             current_user = game_state.station_locks.get(player_station)
                             if current_user is None:
-                                # Station is free, lock it to this player
                                 game_state.station_locks[player_station] = client_id
                             elif current_user == client_id:
-                                # This player already has the lock, keep it
                                 pass
-                            else:
-                                # Another player has the lock, deny this player's lock
-                                # Don't update the held item if they're trying to interact with a locked processor
-                                pass  # Just ignore the interaction locally
-                        
-                        # Update game state and broadcast to all players in room
+                            # else: another player has it, ignore
+
                         dt = time() - game_state.last_update_time
                         game_state.update(dt, rooms[current_room]["players_dict"])
                         game_state.last_update_time = time()
-                        
+
                         response = {
                             "status": "success",
                             "players": list(rooms[current_room]["players_dict"].values()),
                             "game_state": game_state.to_dict()
                         }
-                        
-                        # Broadcast state to all players in this room
+
+                        # Broadcast to all players in room
                         if current_room in room_connections:
                             broadcast_msg = json.dumps(response)
                             disconnected = []
@@ -296,42 +327,71 @@ async def handle_client(websocket):
                                     await conn.send(broadcast_msg)
                                 except websockets.exceptions.ConnectionClosed:
                                     disconnected.append(conn)
-                            
-                            # Clean up disconnected clients
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
-                        
-                        continue  # Don't send individual response, already broadcasted
+
+                        continue  # Already broadcasted, skip individual send
                     else:
                         response = {"status": "success", "players": list(rooms[current_room]["players_dict"].values())}
+
+            elif action == "DELIVER":
+                if current_room and current_room in rooms:
+                    game_state = rooms[current_room]["game_state"]
+                    if game_state:
+                        dish_name = request.get("dish_name")
+                        is_vessel = request.get("is_vessel", False)
+                        delivered = False
+
+                        for i, order in enumerate(game_state.orders):
+                            if order["name"] == dish_name:
+                                game_state.score += (20 + int(order["time"] / 2))
+                                game_state.orders.pop(i)
+                                delivered = True
+                                break
+
+                        if not delivered:
+                            game_state.score = max(0, game_state.score - 15)
+
+                        # Schedule vessel respawn if a plate was used
+                        if is_vessel:
+                            game_state.vessel_respawn_timers[client_id] = 5.0
+
+                        response = {
+                            "status": "success",
+                            "delivered": delivered,
+                            "score": game_state.score,
+                            "orders": game_state.orders
+                        }
+
+                        # Broadcast updated state to all players so everyone sees the delivery
+                        await broadcast_room(current_room, rooms, room_connections)
 
             await websocket.send(json.dumps(response))
 
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
-        # Clean up client tracking on disconnect
         if client_id in client_to_room:
             room_code = client_to_room[client_id]
             del client_to_room[client_id]
-            
-            # Remove from room connections
+
             if room_code in room_connections:
                 room_connections[room_code] = [c for c in room_connections[room_code] if id(c) != client_id]
-            
-            # Release any station locks held by this client
+
             if room_code in rooms and rooms[room_code]["game_state"]:
-                game_state = rooms[room_code]["game_state"]
-                for station_name in list(game_state.station_locks.keys()):
-                    if game_state.station_locks[station_name] == client_id:
-                        game_state.station_locks[station_name] = None
-        
+                gs = rooms[room_code]["game_state"]
+                for station_name in list(gs.station_locks.keys()):
+                    if gs.station_locks[station_name] == client_id:
+                        gs.station_locks[station_name] = None
+
         print(f"Connection closed: {client_id}")
+
 
 async def main():
     print(f"WebSocket server starting on {HOST}:{PORT}")
     async with websockets.serve(handle_client, HOST, PORT):
         await asyncio.Future()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
