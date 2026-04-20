@@ -738,7 +738,10 @@ class Game {
                                             if (localBundle.length > 0) clientStation.heldItem.bundle = localBundle;
                                         }
                                         
-                                        clientStation.progress = serverStation.progress;
+                                        // Don't sync progress for Logic Filter - client handles it locally
+                                        if (clientStation.name !== "Logic Filter") {
+                                            clientStation.progress = serverStation.progress;
+                                        }
                                         clientStation.isCooking = serverStation.is_cooking;
                                         // Cap vessel count at 3 (only 3 vessels available per level)
                                         clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
