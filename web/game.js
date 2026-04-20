@@ -603,17 +603,18 @@ class Game {
                 )) {
                     s.isHighlighted = true;
                     // Logic Filter - client handles progress and completion directly
-                    if (s.name === "Logic Filter" && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                        if (this.keys[' ']) {
-                            this.currentProcessorStation = "Logic Filter"; // Mark that this player is using Logic Filter
-                            s.progress += dt * 0.2; // 5 seconds to fill
-                            if (s.progress >= 1.0) {
-                                s.progress = 1.0; // Keep bar at 100% to show completion
-                                this.player.heldItem.isProcessed = true;
-                            }
-                        } else {
-                            this.currentProcessorStation = null; // Release processor
-                            s.progress = 0; // reset if spacebar released
+                    if (s.name === "Logic Filter" && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed && this.keys[' ']) {
+                        this.currentProcessorStation = "Logic Filter"; // Mark that this player is using Logic Filter
+                        s.progress += dt * 0.2; // 5 seconds to fill
+                        if (s.progress >= 1.0) {
+                            s.progress = 1.0; // Keep bar at 100% to show completion
+                            this.player.heldItem.isProcessed = true;
+                        }
+                    } else {
+                        // Not actively processing - reset bar and release processor
+                        if (s.name === "Logic Filter") {
+                            this.currentProcessorStation = null;
+                            s.progress = 0; // Bar disappears when not processing
                         }
                     }
                 } else {
@@ -848,12 +849,13 @@ class Game {
                     }
                 } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
                     // Player has orb, station has vessel with no cooked dish
-                    // Add unprocessed orbs to bundle (allows multiple orbs on one plate)
-                    if (!pItem.isProcessed) {
+                    // Add both unprocessed and processed orbs to bundle (allows multiple orbs on one plate)
+                    if (!pItem.isProcessed || (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush")) {
+                        // Add unprocessed orbs OR processed orbs that aren't finished dishes
                         sItem.bundle.push(pItem.color);
                         this.player.heldItem = null;
-                    } else if (pItem.isProcessed) {
-                        // Processed item (from Logic Filter, Dream Visualizer, or cooked) - can go on empty plate
+                    } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
+                        // Only set as dish if it's an actual cooked item from Dream Visualizer
                         sItem.dishName = pItem.name;
                         sItem.dishColor = pItem.color;
                         this.player.heldItem = null;
