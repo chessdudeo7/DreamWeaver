@@ -92,19 +92,21 @@ class Item {
             ctx.stroke();
 
             if (this.dishName) {
-                // Draw dish on plate (stays centered, smaller for visibility)
+                // Draw cooked dish on plate (stays centered, smaller for visibility)
                 const dishRadius = Math.max(3, r * 0.6);
                 drawCircle(ctx, x, y - 8, dishRadius, this.dishColor);
                 drawCircle(ctx, x, y - 8, Math.max(1, dishRadius - 3), WHITE);
             } else if (this.bundle.length > 0) {
-                // Draw items orbiting on the plate
+                // Draw items orbiting on the plate - scale down for visibility when many items
                 for (let i = 0; i < this.bundle.length; i++) {
                     const angleStep = (2 * Math.PI) / this.bundle.length;
                     const speed = Date.now() * 0.005;
-                    const ox = Math.cos(i * angleStep + speed) * 14;
-                    const oy = Math.sin(i * angleStep + speed) * 14;
-                    drawCircle(ctx, x + ox, y - 8 + oy, 7, this.bundle[i]);
-                    drawCircle(ctx, x + ox, y - 8 + oy, 3, WHITE);
+                    const itemRadius = this.bundle.length > 2 ? 5 : 7; // Smaller radius if more items
+                    const orbitRadius = this.bundle.length > 2 ? 10 : 14; // Smaller orbit if more items
+                    const ox = Math.cos(i * angleStep + speed) * orbitRadius;
+                    const oy = Math.sin(i * angleStep + speed) * orbitRadius;
+                    drawCircle(ctx, x + ox, y - 8 + oy, itemRadius, this.bundle[i]);
+                    drawCircle(ctx, x + ox, y - 8 + oy, Math.max(1, itemRadius - 3), WHITE);
                 }
             }
         } else {
@@ -505,6 +507,7 @@ class Game {
         this.gameTimer = 120;
         this.frame = 0;
         this.spawnTick = 0;
+        this.totalVesselsInPlay = 0; // Reset vessel count for new level
 
         // Create stations
         this.stations = [];
@@ -542,6 +545,7 @@ class Game {
         const crateStations = this.stations.filter(s => s.name.includes("Crate"));
         for (let i = 0; i < 3; i++) {
             crateStations[i].heldItem = new Item("Vessel", WHITE, false, true);
+            this.totalVesselsInPlay++;
         }
 
         for (let i = 0; i < 3; i++) {
@@ -573,8 +577,12 @@ class Game {
             // Update vessel timers
             this.vesselRespawnTimers = this.vesselRespawnTimers.map(t => t - dt).filter(t => {
                 if (t <= 0) {
-                    for (let s of this.stations) {
-                        if (s.name === "Vessel Return" && s.vesselCount < 3) s.vesselCount++;
+                    // Only respawn if we haven't hit the 3-plate limit
+                    if (this.totalVesselsInPlay < 3) {
+                        for (let s of this.stations) {
+                            if (s.name === "Vessel Return" && s.vesselCount < 3) s.vesselCount++;
+                        }
+                        this.totalVesselsInPlay++;
                     }
                     return false;
                 }
@@ -841,9 +849,14 @@ class Game {
                         pItem.dishColor = sItem.color;
                         s.heldItem = null;
                     }
-                } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName && !sItem.bundle.length) {
-                    if (pItem.isProcessed || pItem.name in RECIPES || pItem.name === "Abstract Mush") {
-                        // Processed item or recipe - put on plate as a dish
+                } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
+                    // Player has orb, station has vessel with no cooked dish
+                    // Add unprocessed orbs to bundle (allows multiple orbs on one plate)
+                    if (!pItem.isProcessed) {
+                        sItem.bundle.push(pItem.color);
+                        this.player.heldItem = null;
+                    } else if (pItem.name in RECIPES || pItem.name === "Abstract Mush") {
+                        // Processed item or cooked dish - can go on empty plate
                         sItem.dishName = pItem.name;
                         sItem.dishColor = pItem.color;
                         this.player.heldItem = null;
@@ -862,6 +875,7 @@ class Game {
         } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
             s.vesselCount--;
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
+            this.totalVesselsInPlay++;
         } else if (s.name === "Dream Visualizer") {
             if (s.heldItem && !s.isCooking) {
                 if (this.player.heldItem && this.player.heldItem.isVessel && !this.player.heldItem.bundle.length && !this.player.heldItem.dishName) {
@@ -902,6 +916,7 @@ class Game {
                 }
                 this.vesselRespawnTimers.push(5);
                 this.player.heldItem = null;
+                this.totalVesselsInPlay--;
             }
         }
     }
