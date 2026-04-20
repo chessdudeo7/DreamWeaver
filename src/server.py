@@ -157,7 +157,7 @@ class GameState:
                             if station["progress"] >= 1.0:
                                 station["progress"] = 0.0
                             # Increment progress
-                            station["progress"] += dt * 10.0  # ~0.1 seconds to complete
+                            station["progress"] += dt * 2.0  # ~0.5 seconds to complete, slower for visibility
                             # Cap progress at 1.0 to ensure completion frame is visible
                             if station["progress"] >= 1.0:
                                 station["progress"] = 1.0

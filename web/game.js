@@ -92,9 +92,10 @@ class Item {
             ctx.stroke();
 
             if (this.dishName) {
-                // Draw dish on plate (stays centered)
-                drawCircle(ctx, x, y - 8, r, this.dishColor);
-                drawCircle(ctx, x, y - 8, r - 4, WHITE);
+                // Draw dish on plate (stays centered, smaller for visibility)
+                const dishRadius = Math.max(3, r * 0.6);
+                drawCircle(ctx, x, y - 8, dishRadius, this.dishColor);
+                drawCircle(ctx, x, y - 8, Math.max(1, dishRadius - 3), WHITE);
             } else if (this.bundle.length > 0) {
                 // Draw items orbiting on the plate
                 for (let i = 0; i < this.bundle.length; i++) {
@@ -732,13 +733,12 @@ class Game {
                             
                             // Sync stations from server - only update if changed to reduce flashing
                             if (serverState.stations) {
-                                const timeSinceInteraction = Date.now() - this.lastInteractionTime;
                                 for (let stationName in serverState.stations) {
                                     const serverStation = serverState.stations[stationName];
                                     const clientStation = this.stations.find(s => s.name === stationName);
                                     if (clientStation) {
                                         // Skip syncing recently modified stations to prevent overwriting local changes
-                                        if (timeSinceInteraction < 150 && this.modifiedStations.has(stationName)) {
+                                        if (this.modifiedStations.has(stationName)) {
                                             continue;
                                         }
                                         // Preserve local vessel state (dishes on plates) when syncing
