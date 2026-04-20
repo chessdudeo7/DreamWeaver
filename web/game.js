@@ -912,9 +912,35 @@ class Game {
                 if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
                 this.modifiedStationsTimeout = null;
             }
+        } else if (s.name === "Gateway" && this.player.heldItem) {
+            // Accept vessel with a loaded dream orb dish
+            const vesselWithDish = this.player.heldItem.isVessel && this.player.heldItem.dishName;
+            // Accept a raw dream orb (directly from Dream Visualizer)
+            const rawDreamOrb = !this.player.heldItem.isVessel && this.player.heldItem.isProcessed && this.player.heldItem.name in RECIPES;
+
+            if (vesselWithDish || rawDreamOrb) {
+                const dishName = vesselWithDish ? this.player.heldItem.dishName : this.player.heldItem.name;
+                let delivered = false;
+                for (let i = 0; i < this.orders.length; i++) {
+                    if (this.orders[i].name === dishName) {
+                        this.score += (20 + Math.floor(this.orders[i].time / 2));
+                        this.orders.splice(i, 1);
+                        delivered = true;
+                        break;
+                    }
+                }
+                if (!delivered) {
+                    this.score = Math.max(0, this.score - 15);
+                    this.redFlash = 0.2;
+                }
+                if (vesselWithDish) {
+                    this.vesselRespawnTimers.push(5);
+                    this.totalVesselsInPlay--;
+                }
+                this.player.heldItem = null;
+            }
         }
     }
-
     showLevelComplete() {
         document.getElementById('levelCompleteUI').style.display = 'flex';
         const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
