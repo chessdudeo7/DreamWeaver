@@ -651,7 +651,7 @@ class Game {
                                 }
                             }
                         }
-                        s.heldItem = new Item(res, resColor);
+                        s.heldItem = new Item(res, resColor, true); // Set isProcessed = true
                         s.isCooking = false;
                         s.progress = 0;
                     }
@@ -814,17 +814,29 @@ class Game {
         // Track when we interact to avoid server overwriting our state immediately
         this.lastInteractionTime = Date.now();
         
-        // Mark this station as modified locally
-        this.modifiedStations.add(s.name);
-        
-        // Clear any existing timeout and set a new one
-        if (this.modifiedStationsTimeout) {
-            clearTimeout(this.modifiedStationsTimeout);
+        // Check if this is a Dream Visualizer cooking action
+        let isCookingAction = false;
+        if (s.name === "Dream Visualizer" && this.player.heldItem && !s.isCooking) {
+            if ((!this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) ||
+                (this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0)) {
+                isCookingAction = true;
+            }
         }
-        this.modifiedStationsTimeout = setTimeout(() => {
-            this.modifiedStations.clear();
-            this.modifiedStationsTimeout = null;
-        }, 200);
+        
+        // Mark this station as modified locally, but NOT if starting cooking
+        // (server needs to sync cooking state to know about the vessel bundle)
+        if (!isCookingAction) {
+            this.modifiedStations.add(s.name);
+            
+            // Clear any existing timeout and set a new one
+            if (this.modifiedStationsTimeout) {
+                clearTimeout(this.modifiedStationsTimeout);
+            }
+            this.modifiedStationsTimeout = setTimeout(() => {
+                this.modifiedStations.clear();
+                this.modifiedStationsTimeout = null;
+            }, 200);
+        }
         
         if (s.name === "Void Siphon" && this.player.heldItem) {
             if (this.player.heldItem.isVessel) {
@@ -875,7 +887,7 @@ class Game {
         } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
             s.vesselCount--;
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
-            this.totalVesselsInPlay++;
+            // Don't increment totalVesselsInPlay here - it was already counted when vessel was returned to Vessel Return
         } else if (s.name === "Dream Visualizer") {
             if (s.heldItem && !s.isCooking) {
                 if (this.player.heldItem && this.player.heldItem.isVessel && !this.player.heldItem.bundle.length && !this.player.heldItem.dishName) {
@@ -895,7 +907,7 @@ class Game {
                     const dummy = new Item("Bundle", WHITE, true);
                     dummy.bundle = [...this.player.heldItem.bundle];
                     s.heldItem = dummy;
-                    this.player.heldItem.bundle = [];
+                    this.player.heldItem = null; // Clear player's hand completely
                     s.isCooking = true;
                 }
             }

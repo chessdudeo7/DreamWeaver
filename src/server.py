@@ -165,8 +165,12 @@ class GameState:
                                 player["heldItem"]["isProcessed"] = True
                                 self.logic_filter_user = None
                         else:
-                            # Player no longer has a valid item, stop processing
-                            station["progress"] = 0.0
+                            # Player no longer has a valid item OR item is already processed - stop processing
+                            # Keep progress at 1.0 if fully processed to show completion
+                            if player.get("heldItem") and player["heldItem"].get("isProcessed"):
+                                station["progress"] = 1.0
+                            else:
+                                station["progress"] = 0.0
                             self.logic_filter_user = None
                 else:
                     # No one is using it - keep progress at 1.0 to avoid flashing
