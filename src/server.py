@@ -29,6 +29,8 @@ STATION_COLORS = {
 }
 
 rooms = {}
+client_to_room = {}  # Track which room each client is in
+room_connections = {}  # Track websocket connections per room
 
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
@@ -46,7 +48,6 @@ class GameState:
         self.players = {}
         self.station_locks = {}  # Track which player is using each station
         self.vessel_respawn_timers = {}  # Track vessel respawn timers per player
-        self.logic_filter_user = None  # Track who is currently processing at Logic Filter
         self.last_update_time = time()
         
         self._create_stations(level)
@@ -146,37 +147,6 @@ class GameState:
         
         # Update stations
         for station_name, station in self.stations.items():
-            # Logic Filter - continuous progress for whoever is using it
-            if station["name"] == "Logic Filter":
-                if self.logic_filter_user and players_dict:
-                    if self.logic_filter_user in players_dict:
-                        player = players_dict[self.logic_filter_user]
-                        # Only process if player has item AND item is not already processed
-                        if player.get("heldItem") and not player["heldItem"].get("isProcessed") and not player["heldItem"].get("isVessel"):
-                            # Reset progress if starting fresh (e.g., a previous item just completed)
-                            if station["progress"] >= 1.0:
-                                station["progress"] = 0.0
-                            # Increment progress
-                            station["progress"] += dt * 0.2  # 5 seconds to complete, progress bar fills linearly
-                            # Cap progress at 1.0 to ensure completion frame is visible
-                            if station["progress"] >= 1.0:
-                                station["progress"] = 1.0
-                                # Mark item as processed (camelCase to match client format)
-                                player["heldItem"]["isProcessed"] = True
-                                self.logic_filter_user = None
-                        else:
-                            # Player no longer has a valid item OR item is already processed - stop processing
-                            # Keep progress at 1.0 if fully processed to show completion
-                            if player.get("heldItem") and player["heldItem"].get("isProcessed"):
-                                station["progress"] = 1.0
-                            else:
-                                station["progress"] = 0.0
-                            self.logic_filter_user = None
-                else:
-                    # No one is using it - keep progress at 1.0 to avoid flashing
-                    # (progress will reset when a new player starts processing)
-                    pass
-            
             if station["name"] == "Dream Visualizer" and station["is_cooking"]:
                 station["progress"] += 0.006
                 if station["progress"] >= 1.0:
@@ -233,6 +203,8 @@ async def handle_client(websocket):
                     "game_state": None,
                     "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
                 }
+                room_connections[code] = [websocket]
+                client_to_room[client_id] = code
                 current_room = code
                 response = {"status": "success", "action": "JOINED", "code": code, "is_host": True, "player_id": client_id}
 
@@ -245,6 +217,10 @@ async def handle_client(websocket):
                         color = PLAYER_COLORS[color_idx]
                         rooms[code]["players"].append({"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None})
                         rooms[code]["players_dict"][client_id] = {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}
+                        if code not in room_connections:
+                            room_connections[code] = []
+                        room_connections[code].append(websocket)
+                        client_to_room[client_id] = code
                         current_room = code
                         response = {"status": "success", "action": "JOINED", "code": code, "is_host": False, "player_id": client_id}
                     else:
@@ -266,69 +242,90 @@ async def handle_client(websocket):
             
             elif action == "SYNC":
                 if current_room and current_room in rooms:
-                    # Update player position and item
-                    for p in rooms[current_room]["players_dict"].values():
-                        if p["id"] == client_id:
-                            p["x"] = request.get("x", p["x"])
-                            p["y"] = request.get("y", p["y"])
-                            p["heldItem"] = request.get("heldItem")
-                            break
-                    
-                    # Update game state and send back
-                    if rooms[current_room]["game_state"]:
-                        dt = time() - rooms[current_room]["game_state"].last_update_time
-                        rooms[current_room]["game_state"].update(dt, rooms[current_room]["players_dict"])
-                        rooms[current_room]["game_state"].last_update_time = time()
+                    game_state = rooms[current_room]["game_state"]
+                    if game_state:
+                        # Update player position and item
+                        for p in rooms[current_room]["players_dict"].values():
+                            if p["id"] == client_id:
+                                p["x"] = request.get("x", p["x"])
+                                p["y"] = request.get("y", p["y"])
+                                p["heldItem"] = request.get("heldItem")
+                                break
+                        
+                        # Check if player is trying to use a locked processor station
+                        # Processors are Logic Filter and Dream Visualizer - only one player can use at a time
+                        processor_stations = ["Logic Filter", "Dream Visualizer"]
+                        player_station = request.get("interact_station")  # Tells server which station player is interacting with
+                        
+                        # First, release any processors this player was using if they're no longer using them
+                        for station_name in processor_stations:
+                            if game_state.station_locks.get(station_name) == client_id and station_name != player_station:
+                                game_state.station_locks[station_name] = None
+                        
+                        # Then, try to acquire lock on the processor if they're using one
+                        if player_station and player_station in processor_stations:
+                            current_user = game_state.station_locks.get(player_station)
+                            if current_user is None:
+                                # Station is free, lock it to this player
+                                game_state.station_locks[player_station] = client_id
+                            elif current_user == client_id:
+                                # This player already has the lock, keep it
+                                pass
+                            else:
+                                # Another player has the lock, deny this player's lock
+                                # Don't update the held item if they're trying to interact with a locked processor
+                                pass  # Just ignore the interaction locally
+                        
+                        # Update game state and broadcast to all players in room
+                        dt = time() - game_state.last_update_time
+                        game_state.update(dt, rooms[current_room]["players_dict"])
+                        game_state.last_update_time = time()
                         
                         response = {
                             "status": "success",
                             "players": list(rooms[current_room]["players_dict"].values()),
-                            "game_state": rooms[current_room]["game_state"].to_dict()
+                            "game_state": game_state.to_dict()
                         }
+                        
+                        # Broadcast state to all players in this room
+                        if current_room in room_connections:
+                            broadcast_msg = json.dumps(response)
+                            disconnected = []
+                            for conn in room_connections[current_room]:
+                                try:
+                                    await conn.send(broadcast_msg)
+                                except websockets.exceptions.ConnectionClosed:
+                                    disconnected.append(conn)
+                            
+                            # Clean up disconnected clients
+                            for conn in disconnected:
+                                room_connections[current_room].remove(conn)
+                        
+                        continue  # Don't send individual response, already broadcasted
                     else:
                         response = {"status": "success", "players": list(rooms[current_room]["players_dict"].values())}
-            
-            elif action == "INTERACT":
-                if current_room and current_room in rooms and rooms[current_room]["game_state"]:
-                    game_state = rooms[current_room]["game_state"]
-                    station_name = request.get("station")
-                    player_id = client_id
-                    
-                    # Simple interaction handling - the client will handle most logic
-                    # Server just syncs state
-                    response = {"status": "success"}
-            
-            elif action == "USE_STATION":
-                if current_room and current_room in rooms and rooms[current_room]["game_state"]:
-                    game_state = rooms[current_room]["game_state"]
-                    station_name = request.get("station")
-                    
-                    if station_name == "Logic Filter":
-                        # Mark this player as using the Logic Filter (only if not already processing)
-                        if game_state.logic_filter_user != client_id:
-                            game_state.logic_filter_user = client_id
-                    
-                    # Return updated game state
-                    response = {
-                        "status": "success",
-                        "game_state": game_state.to_dict()
-                    }
-            
-            elif action == "STOP_USE_STATION":
-                if current_room and current_room in rooms and rooms[current_room]["game_state"]:
-                    game_state = rooms[current_room]["game_state"]
-                    # Stop processing if this player is the one using it
-                    if game_state.logic_filter_user == client_id:
-                        game_state.logic_filter_user = None
-                        game_state.stations["Logic Filter"]["progress"] = 0.0
-                    
-                    response = {"status": "success"}
 
             await websocket.send(json.dumps(response))
 
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
+        # Clean up client tracking on disconnect
+        if client_id in client_to_room:
+            room_code = client_to_room[client_id]
+            del client_to_room[client_id]
+            
+            # Remove from room connections
+            if room_code in room_connections:
+                room_connections[room_code] = [c for c in room_connections[room_code] if id(c) != client_id]
+            
+            # Release any station locks held by this client
+            if room_code in rooms and rooms[room_code]["game_state"]:
+                game_state = rooms[room_code]["game_state"]
+                for station_name in list(game_state.station_locks.keys()):
+                    if game_state.station_locks[station_name] == client_id:
+                        game_state.station_locks[station_name] = None
+        
         print(f"Connection closed: {client_id}")
 
 async def main():

@@ -345,7 +345,7 @@ class Game {
         this.lastSyncTime = 0;
         this.syncInterval = 16; // ms between syncs (16ms ≈ 62 Hz) - faster sync for responsive gameplay
         
-        this.logicFilterActive = false; // Track if player is currently processing at Logic Filter
+        this.currentProcessorStation = null; // Track which processor station player is using (Logic Filter or Dream Visualizer)
         this.lastInteractionTime = 0; // Track when we last interacted with a station
         this.modifiedStations = new Set(); // Track which stations were modified locally to avoid overwriting
         this.modifiedStationsTimeout = null; // Track timeout for clearing modified stations
@@ -605,21 +605,28 @@ class Game {
                     // Logic Filter - client handles progress and completion directly
                     if (s.name === "Logic Filter" && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
                         if (this.keys[' ']) {
+                            this.currentProcessorStation = "Logic Filter"; // Mark that this player is using Logic Filter
                             s.progress += dt * 0.2; // 5 seconds to fill
                             if (s.progress >= 1.0) {
                                 s.progress = 1.0; // Keep bar at 100% to show completion
                                 this.player.heldItem.isProcessed = true;
                             }
                         } else {
+                            this.currentProcessorStation = null; // Release processor
                             s.progress = 0; // reset if spacebar released
                         }
                     }
                 } else {
                     s.isHighlighted = false;
                     if (s.name === "Logic Filter") s.progress = 0; // reset if player walks away
+                    // Release processor if player walks away from it
+                    if ((s.name === "Logic Filter" || s.name === "Dream Visualizer") && this.currentProcessorStation === s.name) {
+                        this.currentProcessorStation = null;
+                    }
                 }
 
                 if (s.name === "Dream Visualizer" && s.isCooking) {
+                    this.currentProcessorStation = "Dream Visualizer"; // Mark that processor is in use
                     s.progress += 0.006;
                     if (s.progress >= 1) {
                         let res = "Abstract Mush";
@@ -636,6 +643,7 @@ class Game {
                         s.heldItem = new Item(res, resColor, true); // Set isProcessed = true
                         s.isCooking = false;
                         s.progress = 0;
+                        this.currentProcessorStation = null; // Release processor when done
                     }
                 }
             }
@@ -664,7 +672,8 @@ class Game {
                     action: "SYNC",
                     x: Math.round(this.player.x),
                     y: Math.round(this.player.y),
-                    heldItem: heldItemData
+                    heldItem: heldItemData,
+                    interact_station: this.currentProcessorStation
                 }).then(res => {
                     if (res && res.status === "success") {
                         const timeSinceInteraction = Date.now() - this.lastInteractionTime;
