@@ -602,39 +602,21 @@ class Game {
                     s.x, s.y, s.w, s.h
                 )) {
                     s.isHighlighted = true;
-                    // Logic Filter - requires continuous spacebar hold to process
+                    // Logic Filter - client handles progress and completion directly
                     if (s.name === "Logic Filter" && this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
                         if (this.keys[' ']) {
-                            // Spacebar is held - continue processing
-                            if (!this.logicFilterActive) {
-                                this.logicFilterActive = true;
-                                this.network.send({
-                                    action: "USE_STATION",
-                                    station: "Logic Filter"
-                                }).catch(() => {});
+                            s.progress += dt * 0.2; // 5 seconds to fill
+                            if (s.progress >= 1.0) {
+                                s.progress = 0;
+                                this.player.heldItem.isProcessed = true;
                             }
                         } else {
-                            // Spacebar not held - stop processing
-                            if (this.logicFilterActive) {
-                                this.logicFilterActive = false;
-                                this.network.send({
-                                    action: "STOP_USE_STATION",
-                                    station: "Logic Filter"
-                                }).catch(() => {});
-                            }
-                        }
-                    } else if (this.logicFilterActive) {
-                        // Stop processing if not in Logic Filter anymore, item already processed, or spacebar released
-                        if (!this.keys[' '] || !this.player.heldItem || this.player.heldItem.isProcessed) {
-                            this.logicFilterActive = false;
-                            this.network.send({
-                                action: "STOP_USE_STATION",
-                                station: "Logic Filter"
-                            }).catch(() => {});
+                            s.progress = 0; // reset if spacebar released
                         }
                     }
                 } else {
                     s.isHighlighted = false;
+                    if (s.name === "Logic Filter") s.progress = 0; // reset if player walks away
                 }
 
                 if (s.name === "Dream Visualizer" && s.isCooking) {
