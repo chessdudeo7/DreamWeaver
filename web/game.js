@@ -884,15 +884,17 @@ class Game {
         } else if (s.name === "Dream Visualizer") {
             if (s.isCooking) return;
 
+            // AFTER - unprotect Dream Visualizer once player picks up the orb
             if (s.heldItem) {
-                // Finished orb ready — pick it up
                 if (!this.player.heldItem) {
                     this.player.heldItem = s.heldItem;
                     s.heldItem = null;
+                    this.modifiedStations.delete("Dream Visualizer");
                 } else if (this.player.heldItem.isVessel && !this.player.heldItem.dishName && !this.player.heldItem.bundle.length) {
                     this.player.heldItem.dishName = s.heldItem.name;
                     this.player.heldItem.dishColor = s.heldItem.color;
                     s.heldItem = null;
+                    this.modifiedStations.delete("Dream Visualizer");
                 }
             } else if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
                 // Load orbs in and start cooking
@@ -908,13 +910,11 @@ class Game {
                 // Protect Dream Visualizer from server overwrites for the entire cook duration (6 seconds to be safe)
                 this.modifiedStations.add("Dream Visualizer");
                 if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
-                this.modifiedStationsTimeout = setTimeout(() => {
-                    this.modifiedStations.delete("Dream Visualizer");
-                }, 6000);
+                this.modifiedStationsTimeout = null;
             }
         }
     }
-    
+
     showLevelComplete() {
         document.getElementById('levelCompleteUI').style.display = 'flex';
         const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
