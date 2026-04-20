@@ -753,10 +753,12 @@ class Game {
                                         }
                                         
                                         // Don't sync progress for Logic Filter - client handles it locally
-                                        if (clientStation.name !== "Logic Filter") {
+                                        if (clientStation.name !== "Logic Filter" && clientStation.name !== "Dream Visualizer") {
                                             clientStation.progress = serverStation.progress;
                                         }
-                                        clientStation.isCooking = serverStation.is_cooking;
+                                        if (clientStation.name !== "Dream Visualizer") {
+                                            clientStation.isCooking = serverStation.is_cooking;
+                                        }
                                         // Cap vessel count at 3 (only 3 vessels available per level)
                                         clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
                                     }
@@ -880,23 +882,20 @@ class Game {
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
             // Don't increment totalVesselsInPlay here - it was already counted when vessel was returned to Vessel Return
         } else if (s.name === "Dream Visualizer") {
-            if (s.isCooking) {
-                // Can't interact while cooking
-                return;
-            }
+            if (s.isCooking) return;
+
             if (s.heldItem) {
-                // Finished dream orb is ready - pick it up (empty hand or vessel)
+                // Finished orb ready — pick it up
                 if (!this.player.heldItem) {
                     this.player.heldItem = s.heldItem;
                     s.heldItem = null;
                 } else if (this.player.heldItem.isVessel && !this.player.heldItem.dishName && !this.player.heldItem.bundle.length) {
-                    // Load dream orb directly onto empty vessel
                     this.player.heldItem.dishName = s.heldItem.name;
                     this.player.heldItem.dishColor = s.heldItem.color;
                     s.heldItem = null;
                 }
-            } else if (this.player.heldItem && this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) {
-                // Load vessel's orbs into the visualizer, keep empty plate in hand
+            } else if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
+                // Load orbs in and start cooking
                 const dummy = new Item("Bundle", WHITE, true);
                 dummy.bundle = [...this.player.heldItem.bundle];
                 s.heldItem = dummy;
@@ -905,29 +904,17 @@ class Game {
                 this.player.heldItem.bundle = [];
                 this.player.heldItem.dishName = null;
                 this.player.heldItem.dishColor = null;
-            }
-        } else if (s.name === "Gateway" && this.player.heldItem) {
-            if (this.player.heldItem.isVessel && this.player.heldItem.dishName) {
-                let delivered = false;
-                for (let i = 0; i < this.orders.length; i++) {
-                    if (this.orders[i].name === this.player.heldItem.dishName) {
-                        this.score += (20 + Math.floor(this.orders[i].time / 2));
-                        this.orders.splice(i, 1);
-                        delivered = true;
-                        break;
-                    }
-                }
-                if (!delivered) {
-                    this.score = Math.max(0, this.score - 15);
-                    this.redFlash = 0.2;
-                }
-                this.vesselRespawnTimers.push(5);
-                this.player.heldItem = null;
-                this.totalVesselsInPlay--;
+
+                // Protect Dream Visualizer from server overwrites for the entire cook duration (6 seconds to be safe)
+                this.modifiedStations.add("Dream Visualizer");
+                if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
+                this.modifiedStationsTimeout = setTimeout(() => {
+                    this.modifiedStations.delete("Dream Visualizer");
+                }, 6000);
             }
         }
     }
-
+    
     showLevelComplete() {
         document.getElementById('levelCompleteUI').style.display = 'flex';
         const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
