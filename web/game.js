@@ -577,12 +577,14 @@ class Game {
             // Update vessel timers
             this.vesselRespawnTimers = this.vesselRespawnTimers.map(t => t - dt).filter(t => {
                 if (t <= 0) {
-                    // Only respawn if we haven't hit the 3-plate limit
-                    if (this.totalVesselsInPlay < 3) {
+                    const vesselsInCrates = this.stations.filter(s => s.name.includes("Crate") && s.heldItem?.isVessel).length;
+                    const vesselsAtReturn = this.stations.reduce((sum, s) => s.name === "Vessel Return" ? sum + s.vesselCount : sum, 0);
+                    const vesselsInHands = Object.values(this.playersDict).filter(p => p.heldItem?.isVessel).length;
+                    const totalVessels = vesselsInCrates + vesselsAtReturn + vesselsInHands;
+                    if (totalVessels < 3) {
                         for (let s of this.stations) {
-                            if (s.name === "Vessel Return" && s.vesselCount < 3) s.vesselCount++;
+                            if (s.name === "Vessel Return") { s.vesselCount++; break; }
                         }
-                        this.totalVesselsInPlay++;
                     }
                     return false;
                 }
@@ -626,25 +628,27 @@ class Game {
                     }
                 }
 
+                // AFTER - auto-cooks once started, player can walk away
                 if (s.name === "Dream Visualizer" && s.isCooking) {
-                    this.currentProcessorStation = "Dream Visualizer"; // Mark that processor is in use
-                    s.progress += 0.006;
-                    if (s.progress >= 1) {
+                    s.progress += dt * 0.2;
+                    if (s.progress >= 1.0) {
                         let res = "Abstract Mush";
                         let resColor = [150, 0, 0];
                         if (s.heldItem.bundle.length === 2) {
-                            for (let name in RECIPES) {
-                                const recipe = RECIPES[name];
-                                if (this.arraysEqual(s.heldItem.bundle.sort(), recipe.slice().sort())) {
-                                    res = name;
-                                    resColor = WHITE;
+                            for (let recipeName in RECIPES) {
+                                const recipe = RECIPES[recipeName];
+                                const bundleSorted = [...s.heldItem.bundle].map(c => JSON.stringify(c)).sort();
+                                const recipeSorted = [...recipe].map(c => JSON.stringify(c)).sort();
+                                if (bundleSorted.join() === recipeSorted.join()) {
+                                    res = recipeName;
+                                    resColor = [180, 70, 255];
+                                    break;
                                 }
                             }
                         }
-                        s.heldItem = new Item(res, resColor, true); // Set isProcessed = true
+                        s.heldItem = new Item(res, resColor, true);
                         s.isCooking = false;
                         s.progress = 0;
-                        this.currentProcessorStation = null; // Release processor when done
                     }
                 }
             }
@@ -876,30 +880,31 @@ class Game {
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
             // Don't increment totalVesselsInPlay here - it was already counted when vessel was returned to Vessel Return
         } else if (s.name === "Dream Visualizer") {
-            if (s.heldItem && !s.isCooking) {
-                if (this.player.heldItem && this.player.heldItem.isVessel && !this.player.heldItem.bundle.length && !this.player.heldItem.dishName) {
+            if (s.isCooking) {
+                // Can't interact while cooking
+                return;
+            }
+            if (s.heldItem) {
+                // Finished dream orb is ready - pick it up (empty hand or vessel)
+                if (!this.player.heldItem) {
+                    this.player.heldItem = s.heldItem;
+                    s.heldItem = null;
+                } else if (this.player.heldItem.isVessel && !this.player.heldItem.dishName && !this.player.heldItem.bundle.length) {
+                    // Load dream orb directly onto empty vessel
                     this.player.heldItem.dishName = s.heldItem.name;
                     this.player.heldItem.dishColor = s.heldItem.color;
                     s.heldItem = null;
-                } else if (!this.player.heldItem) {
-                    this.player.heldItem = s.heldItem;
-                    s.heldItem = null;
                 }
-            } else if (this.player.heldItem && !s.isCooking) {
-                if (!this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) {
-                    s.heldItem = this.player.heldItem;
-                    this.player.heldItem = null;
-                    s.isCooking = true;
-                } else if (this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) {
-                    const dummy = new Item("Bundle", WHITE, true);
-                    dummy.bundle = [...this.player.heldItem.bundle];
-                    s.heldItem = dummy;
-                    s.isCooking = true;
-                    // Give plate back empty - the orbs are now cooking inside the visualizer
-                    this.player.heldItem.bundle = [];
-                    this.player.heldItem.dishName = null;
-                    this.player.heldItem.dishColor = null;
-                }
+            } else if (this.player.heldItem && this.player.heldItem.isVessel && this.player.heldItem.bundle.length > 0) {
+                // Load vessel's orbs into the visualizer, keep empty plate in hand
+                const dummy = new Item("Bundle", WHITE, true);
+                dummy.bundle = [...this.player.heldItem.bundle];
+                s.heldItem = dummy;
+                s.isCooking = true;
+                s.progress = 0;
+                this.player.heldItem.bundle = [];
+                this.player.heldItem.dishName = null;
+                this.player.heldItem.dishColor = null;
             }
         } else if (s.name === "Gateway" && this.player.heldItem) {
             if (this.player.heldItem.isVessel && this.player.heldItem.dishName) {
