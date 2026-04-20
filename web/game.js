@@ -874,7 +874,6 @@ class Game {
         } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
             s.vesselCount--;
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
-            this.totalVesselsInPlay++; // vessel is now actively in play (player's hands)
             // Don't increment totalVesselsInPlay here - it was already counted when vessel was returned to Vessel Return
         } else if (s.name === "Dream Visualizer") {
             if (s.heldItem && !s.isCooking) {
@@ -895,8 +894,11 @@ class Game {
                     const dummy = new Item("Bundle", WHITE, true);
                     dummy.bundle = [...this.player.heldItem.bundle];
                     s.heldItem = dummy;
-                    this.player.heldItem = null; // Clear player's hand completely
                     s.isCooking = true;
+                    // Give plate back empty - the orbs are now cooking inside the visualizer
+                    this.player.heldItem.bundle = [];
+                    this.player.heldItem.dishName = null;
+                    this.player.heldItem.dishColor = null;
                 }
             }
         } else if (s.name === "Gateway" && this.player.heldItem) {
