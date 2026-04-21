@@ -30,6 +30,15 @@ class Network {
                     this.connected = false;
                     console.log('Disconnected from server');
                 };
+
+                this.ws.addEventListener('message', (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.status === 'vessel_respawn' && this.onVesselRespawn) {
+                            this.onVesselRespawn();
+                        }
+                    } catch (e) {}
+                });
             } catch (error) {
                 reject(error);
             }
@@ -45,9 +54,11 @@ class Network {
             }
 
             const messageHandler = (event) => {
-                this.ws.removeEventListener('message', messageHandler);
                 try {
                     const response = JSON.parse(event.data);
+                    // Ignore server-pushed events — they're handled by the general listener
+                    if (response.status === 'vessel_respawn') return;
+                    this.ws.removeEventListener('message', messageHandler);
                     resolve(response);
                 } catch (error) {
                     console.error('Failed to parse response:', error);

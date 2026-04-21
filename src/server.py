@@ -36,19 +36,19 @@ def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
 
 async def schedule_vessel_respawn(room_code, delay=5.0):
-    """Wait delay seconds then add a vessel to Vessel Return if under the cap."""
     await asyncio.sleep(delay)
-    if room_code not in rooms:
+    if room_code not in rooms or room_code not in room_connections:
         return
-    game_state = rooms[room_code].get("game_state")
-    if not game_state:
-        return
-    vessel_return = game_state.stations.get("Vessel Return", {})
-    current_count = vessel_return.get("vessel_count", 0)
-    if current_count < 3:
-        vessel_return["vessel_count"] = current_count + 1
-    # Broadcast the updated state to all players
-    await broadcast_room(room_code, rooms, room_connections)
+    # Just tell all clients a respawn is available — they decide if they need it
+    msg = json.dumps({"status": "vessel_respawn"})
+    disconnected = []
+    for conn in room_connections[room_code]:
+        try:
+            await conn.send(msg)
+        except websockets.exceptions.ConnectionClosed:
+            disconnected.append(conn)
+    for conn in disconnected:
+        room_connections[room_code].remove(conn)
 
 class GameState:
     def __init__(self, level=1):
@@ -169,7 +169,7 @@ class GameState:
                 "color": station["color"],
                 "progress": 0.0,  # Client manages progress for cooking stations
                 "is_cooking": False,  # Client manages cooking state
-                "vessel_count": station.get("vessel_count", 0),
+                "vessel_count": 0,
                 "held_item": None  # Client manages all held items now
             }
         

@@ -708,13 +708,6 @@
                                         // Server only sends vessel_count for tracking respawns
                                         // Skip locally-protected stations (including Vessel Return during pickups)
                                         if (this.modifiedStations.has(stationName)) continue;
-
-                                        if (clientStation.name === "Vessel Return") {
-                                            // Only sync if not locally protected (i.e. player just picked up a vessel)
-                                            if (Date.now() > this.vesselReturnProtectedUntil) {
-                                                clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
-                                            }
-                                        }
                                         // All other station state (heldItem, progress, isCooking) is client-managed
                                     }
                                 }
@@ -1025,6 +1018,18 @@
         try {
             await game.network.connect();
             console.log('Connected to server');
+
+            game.network.onVesselRespawn = () => {
+                if (game.gameState !== "PLAYING") return;
+                if (game.countTotalVessels() < 3) {
+                    for (let s of game.stations) {
+                        if (s.name === "Vessel Return") {
+                            s.vesselCount++;
+                            break;
+                        }
+                    }
+                }
+            };
         } catch (e) {
             console.log('Server connection failed - local mode only:', e);
         }
