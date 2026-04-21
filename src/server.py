@@ -47,7 +47,6 @@ class GameState:
         self.stations = {}
         self.players = {}
         self.station_locks = {}
-        self.vessel_respawn_timers = {}
         self.last_update_time = time()
 
         self._create_stations(level)
@@ -121,25 +120,6 @@ class GameState:
         if self.game_timer <= 0:
             self.state = "LEVEL_COMPLETE"
 
-        # Handle vessel respawn timers
-        expired = []
-        for pid, t in self.vessel_respawn_timers.items():
-            self.vessel_respawn_timers[pid] = t - dt
-            if self.vessel_respawn_timers[pid] <= 0:
-                expired.append(pid)
-                # Count vessels currently in play
-                vessels_in_stations = sum(
-                    1 for s in self.stations.values()
-                    if s.get("held_item") and s["held_item"].get("is_vessel")
-                )
-                vessels_at_return = self.stations.get("Vessel Return", {}).get("vessel_count", 0)
-                if vessels_in_stations + vessels_at_return < 3:
-                    if "Vessel Return" in self.stations:
-                        self.stations["Vessel Return"]["vessel_count"] = \
-                            self.stations["Vessel Return"].get("vessel_count", 0) + 1
-        for pid in expired:
-            del self.vessel_respawn_timers[pid]
-
         self.frame += 1
         self.spawn_tick += dt
         if self.spawn_tick > 15 and len(self.orders) < 5:
@@ -156,8 +136,8 @@ class GameState:
                 remaining.append(o)
         self.orders = remaining
 
-        # NOTE: Station state (held_item, progress, is_cooking) is NOW managed entirely by clients.
-        # Server only maintains vessel_count for respawning.
+        # NOTE: Vessel respawning is now handled directly in DELIVER handler.
+        # Serves are only responsible for tracking the total count, never going above 3.
         # This prevents the server from creating items that diverge from client view.
 
     def to_dict(self):
@@ -341,9 +321,11 @@ async def handle_client(websocket):
                         if not delivered:
                             game_state.score = max(0, game_state.score - 15)
 
-                        # Schedule vessel respawn if a plate was used
-                        if is_vessel:
-                            game_state.vessel_respawn_timers[client_id] = 5.0
+                        # If a vessel was delivered, return it to Vessel Return (capped at 3 total)
+                        if is_vessel and delivered:
+                            vessel_count = game_state.stations.get("Vessel Return", {}).get("vessel_count", 0)
+                            if vessel_count < 3:
+                                game_state.stations["Vessel Return"]["vessel_count"] = vessel_count + 1
 
                         # Broadcast updated state to all players
                         if current_room in room_connections:

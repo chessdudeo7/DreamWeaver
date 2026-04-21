@@ -314,7 +314,6 @@ class Game {
         this.spawnTick = 0;
         this.redFlash = 0;
         this.greenFlash = 0; // teal/green flash on correct delivery
-        this.vesselRespawnTimers = [];
 
         this.keys = {};
         this.mousePos = { x: 0, y: 0 };
@@ -490,7 +489,6 @@ class Game {
         this.spawnTick = 0;
         this.redFlash = 0;
         this.greenFlash = 0;
-        this.vesselRespawnTimers = [];
         this.lastDeliveryTime = 0;
         this.modifiedStations.clear();
         this.logicFilterProgress = 0;
@@ -564,21 +562,9 @@ class Game {
             if (this.redFlash > 0) this.redFlash -= dt;
             if (this.greenFlash > 0) this.greenFlash -= dt;
 
-            // Vessel respawn — always use countTotalVessels() to prevent drift
-            this.vesselRespawnTimers = this.vesselRespawnTimers.map(t => t - dt).filter(t => {
-                if (t <= 0) {
-                    if (this.countTotalVessels() < 3) {
-                        for (let s of this.stations) {
-                            if (s.name === "Vessel Return") {
-                                s.vesselCount++;
-                                break;
-                            }
-                        }
-                    }
-                    return false;
-                }
-                return true;
-            });
+            // NOTE: Vessel respawn is now handled server-side.
+            // Vessel Return's vesselCount is synced from server directly on delivery.
+            // No client-side timer needed anymore.
 
             this.spawnTick += dt;
             if (this.spawnTick > 15 && this.orders.length < 5) {
@@ -900,9 +886,7 @@ class Game {
                     this.redFlash = 0.2;
                 }
 
-                if (vesselWithDish) {
-                    this.vesselRespawnTimers.push(5);
-                }
+                // Vessel respawn is now handled by server immediately on delivery
 
                 // Send delivery to server without blocking (fire-and-forget)
                 // The broadcast will sync all players automatically
