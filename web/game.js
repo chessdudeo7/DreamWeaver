@@ -919,21 +919,18 @@ class Game {
                     this.vesselRespawnTimers.push(5);
                 }
 
-                // Authoritative update via server — all clients reconcile
-                if (this.network.connected) {
-                    this.network.send({
-                        action: "DELIVER",
-                        dish_name: dishName,
-                        is_vessel: vesselWithDish
-                    }).then(res => {
-                        if (res && res.status === "success") {
-                            this.score = res.score;
-                            this.orders = res.orders;
-                            if (!res.delivered) this.redFlash = 0.2;
-                        }
-                    }).catch(err => {
-                        console.error("DELIVER error:", err);
-                    });
+                // Send delivery to server without blocking (fire-and-forget)
+                // The broadcast will sync all players automatically
+                if (this.network.connected && this.network.ws) {
+                    try {
+                        this.network.ws.send(JSON.stringify({
+                            action: "DELIVER",
+                            dish_name: dishName,
+                            is_vessel: vesselWithDish
+                        }));
+                    } catch (err) {
+                        console.error("Failed to send DELIVER:", err);
+                    }
                 }
             }
         }

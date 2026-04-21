@@ -356,17 +356,7 @@ async def handle_client(websocket):
                         if is_vessel:
                             game_state.vessel_respawn_timers[client_id] = 5.0
 
-                        response = {
-                            "status": "success",
-                            "delivered": delivered,
-                            "score": game_state.score,
-                            "orders": game_state.orders
-                        }
-                        
-                        # Send immediate response to client
-                        await websocket.send(json.dumps(response))
-                        
-                        # Broadcast updated state to all players so everyone sees the delivery
+                        # Broadcast updated state to all players
                         if current_room in room_connections:
                             broadcast_msg = json.dumps({
                                 "status": "success",
@@ -382,7 +372,7 @@ async def handle_client(websocket):
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
                         
-                        continue  # Skip the final send since we already sent a response
+                        continue  # Skip individual response, broadcast handles it
 
             await websocket.send(json.dumps(response))
 
