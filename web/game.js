@@ -704,7 +704,8 @@ class Game {
 
                                     // Station items and cooking state are now managed entirely by the client
                                     // Server only sends vessel_count for tracking respawns
-                                    // This prevents the server from overwriting client-managed state
+                                    // Skip locally-protected stations (including Vessel Return during pickups)
+                                    if (this.modifiedStations.has(stationName)) continue;
 
                                     if (clientStation.name === "Vessel Return") {
                                         // Only sync vessel_count for Vessel Return respawn tracking
@@ -820,6 +821,14 @@ class Game {
         } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
             s.vesselCount--;
             this.player.heldItem = new Item("Vessel", WHITE, false, true);
+            
+            // Protect Vessel Return from server sync until we deliver (so decrement isn't overwritten)
+            this.modifiedStations.add("Vessel Return");
+            if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
+            this.modifiedStationsTimeout = setTimeout(() => {
+                this.modifiedStations.delete("Vessel Return");
+                this.modifiedStationsTimeout = null;
+            }, 500);
 
         } else if (s.name === "Dream Visualizer") {
             if (s.isCooking) return;
