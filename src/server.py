@@ -362,9 +362,22 @@ async def handle_client(websocket):
                             "score": game_state.score,
                             "orders": game_state.orders
                         }
-
+                        
                         # Broadcast updated state to all players so everyone sees the delivery
-                        await broadcast_room(current_room, rooms, room_connections)
+                        if current_room in room_connections:
+                            broadcast_msg = json.dumps({
+                                "status": "success",
+                                "players": list(rooms[current_room]["players_dict"].values()),
+                                "game_state": game_state.to_dict()
+                            })
+                            disconnected = []
+                            for conn in room_connections[current_room]:
+                                try:
+                                    await conn.send(broadcast_msg)
+                                except websockets.exceptions.ConnectionClosed:
+                                    disconnected.append(conn)
+                            for conn in disconnected:
+                                room_connections[current_room].remove(conn)
 
             await websocket.send(json.dumps(response))
 

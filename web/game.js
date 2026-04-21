@@ -909,7 +909,7 @@ class Game {
                 }
 
                 if (localDelivered) {
-                    this.greenFlash = 0.35;
+                    this.greenFlash = 0.1; // Shorter flash - 100ms instead of 350ms
                 } else {
                     this.score = Math.max(0, this.score - 15);
                     this.redFlash = 0.2;
