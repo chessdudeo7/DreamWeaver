@@ -35,6 +35,21 @@ room_connections = {}
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
 
+async def schedule_vessel_respawn(room_code, delay=5.0):
+    """Wait delay seconds then add a vessel to Vessel Return if under the cap."""
+    await asyncio.sleep(delay)
+    if room_code not in rooms:
+        return
+    game_state = rooms[room_code].get("game_state")
+    if not game_state:
+        return
+    vessel_return = game_state.stations.get("Vessel Return", {})
+    current_count = vessel_return.get("vessel_count", 0)
+    if current_count < 3:
+        vessel_return["vessel_count"] = current_count + 1
+    # Broadcast the updated state to all players
+    await broadcast_room(room_code, rooms, room_connections)
+
 class GameState:
     def __init__(self, level=1):
         self.level = level
@@ -323,9 +338,7 @@ async def handle_client(websocket):
 
                         # If a vessel was delivered, return it to Vessel Return (capped at 3 total)
                         if is_vessel and delivered:
-                            vessel_count = game_state.stations.get("Vessel Return", {}).get("vessel_count", 0)
-                            if vessel_count < 3:
-                                game_state.stations["Vessel Return"]["vessel_count"] = vessel_count + 1
+                            asyncio.create_task(schedule_vessel_respawn(current_room, delay=5.0))
 
                         # Broadcast updated state to all players
                         if current_room in room_connections:
