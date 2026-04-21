@@ -37,6 +37,9 @@ class Network {
                         if (data.status === 'vessel_respawn' && this.onVesselRespawn) {
                             this.onVesselRespawn();
                         }
+                        if (data.status === 'level_load' && this.onLevelLoad) {
+                            this.onLevelLoad(data.level);
+                        }
                     } catch (e) {}
                 });
             } catch (error) {
@@ -58,6 +61,7 @@ class Network {
                     const response = JSON.parse(event.data);
                     // Ignore server-pushed events — they're handled by the general listener
                     if (response.status === 'vessel_respawn') return;
+                    if (response.status === 'level_load') return;
                     this.ws.removeEventListener('message', messageHandler);
                     resolve(response);
                 } catch (error) {

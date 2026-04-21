@@ -264,6 +264,23 @@ async def handle_client(websocket):
                     rooms[current_room]["game_state"] = GameState(1)
                     response = {"status": "success", "action": "GAME_STARTED"}
 
+            elif action == "LOAD_LEVEL":
+                if current_room and current_room in rooms:
+                    level = request.get("level", 1)
+                    rooms[current_room]["game_state"] = GameState(level)
+                    # Broadcast to all players so everyone transitions together
+                    if current_room in room_connections:
+                        broadcast_msg = json.dumps({"status": "level_load", "level": level})
+                        disconnected = []
+                        for conn in room_connections[current_room]:
+                            try:
+                                await conn.send(broadcast_msg)
+                            except websockets.exceptions.ConnectionClosed:
+                                disconnected.append(conn)
+                        for conn in disconnected:
+                            room_connections[current_room].remove(conn)
+                    continue  # broadcast handled it, skip individual response
+
             elif action == "SYNC":
                 if current_room and current_room in rooms:
                     game_state = rooms[current_room]["game_state"]

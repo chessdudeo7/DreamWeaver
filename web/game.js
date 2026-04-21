@@ -417,11 +417,14 @@
         }
 
         async nextLevel() {
+            if (!this.isHost) return; // only host can trigger level transitions
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
-            if (stars >= 1 && this.currentLevel < 2) {
-                this.loadLevel(2);
+            const nextLevelNum = (stars >= 1 && this.currentLevel < 2) ? 2 : this.currentLevel;
+            if (this.network.connected) {
+                await this.network.send({ action: "LOAD_LEVEL", level: nextLevelNum });
+                // Host also loads via the broadcast, so no need to call loadLevel() separately
             } else {
-                this.loadLevel(this.currentLevel);
+                this.loadLevel(nextLevelNum); // offline fallback
             }
         }
 
@@ -472,6 +475,7 @@
             document.getElementById('levelCompleteUI').style.display = 'none';
 
             this.currentLevel = levelNum;
+            this.gameTimer = 120;
             this.gameState = "PLAYING";
             this.vesselReturnProtectedUntil = 0;
 
@@ -486,7 +490,6 @@
 
             this.orders = [];
             this.score = 0;
-            this.gameTimer = 120;
             this.frame = 0;
             this.spawnTick = 0;
             this.redFlash = 0;
@@ -589,7 +592,7 @@
                     if (nearLF && hasUnprocessedOrb && this.keys[' ']) {
                         // Advance progress
                         this.logicFilterProcessing = true;
-                        this.logicFilterProgress = Math.min(1.0, this.logicFilterProgress + dt * 0.2);
+                        this.logicFilterProgress = Math.min(1.0, this.logicFilterProgress + dt * 0.4);
                         lfStation.progress = this.logicFilterProgress;
 
                         if (this.logicFilterProgress >= 1.0) {
@@ -689,7 +692,9 @@
 
                             if (res.game_state) {
                                 const serverState = res.game_state;
-                                this.gameTimer = serverState.game_timer;
+                                if (serverState.game_timer > 0 && Math.abs(serverState.game_timer - this.gameTimer) < 5) {
+                                    this.gameTimer = serverState.game_timer;
+                                }
                                 this.frame = serverState.frame;
 
                                 // Only accept server score/orders outside the delivery debounce window
@@ -1029,6 +1034,10 @@
                         }
                     }
                 }
+            };
+
+            game.network.onLevelLoad = (level) => {
+                game.loadLevel(level);
             };
         } catch (e) {
             console.log('Server connection failed - local mode only:', e);
