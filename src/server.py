@@ -363,6 +363,9 @@ async def handle_client(websocket):
                             "orders": game_state.orders
                         }
                         
+                        # Send immediate response to client
+                        await websocket.send(json.dumps(response))
+                        
                         # Broadcast updated state to all players so everyone sees the delivery
                         if current_room in room_connections:
                             broadcast_msg = json.dumps({
@@ -378,6 +381,8 @@ async def handle_client(websocket):
                                     disconnected.append(conn)
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
+                        
+                        continue  # Skip the final send since we already sent a response
 
             await websocket.send(json.dumps(response))
 

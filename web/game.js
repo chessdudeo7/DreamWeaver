@@ -931,6 +931,8 @@ class Game {
                             this.orders = res.orders;
                             if (!res.delivered) this.redFlash = 0.2;
                         }
+                    }).catch(err => {
+                        console.error("DELIVER error:", err);
                     });
                 }
             }
