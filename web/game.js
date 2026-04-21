@@ -896,6 +896,8 @@ class Game {
                 }
 
                 // Vessel respawn is now handled by server immediately on delivery
+                // Unprotect Vessel Return so the new vessel from delivery can be synced
+                this.modifiedStations.delete("Vessel Return");
 
                 // Send delivery to server without blocking (fire-and-forget)
                 // The broadcast will sync all players automatically
