@@ -96,17 +96,9 @@ class GameState:
             }
             self.station_locks[name] = None
 
-        for i in range(3):
-            crate_name = f"Crate {i+1}"
-            self.stations[crate_name]["held_item"] = {
-                "name": "Vessel",
-                "color": [240, 240, 255],
-                "is_processed": False,
-                "is_vessel": True,
-                "bundle": [],
-                "dish_name": None,
-                "dish_color": None
-            }
+        # NOTE: Stations items are now managed entirely by the client.
+        # Server only tracks vessel_count at Vessel Return for respawning.
+        # This prevents state desync where client picks up items but server still has them.
 
     def _spawn_initial_orders(self):
         for _ in range(3):
@@ -164,38 +156,35 @@ class GameState:
                 remaining.append(o)
         self.orders = remaining
 
-        # Update stations
-        for station_name, station in self.stations.items():
-            if station["name"] == "Dream Visualizer" and station["is_cooking"]:
-                station["progress"] += 0.006
-                if station["progress"] >= 1.0:
-                    res_name = "Abstract Mush"
-                    res_color = [150, 0, 0]
-                    if station["held_item"] and len(station["held_item"].get("bundle", [])) == 2:
-                        for recipe_name, recipe_colors in RECIPES.items():
-                            if sorted([str(c) for c in station["held_item"]["bundle"]]) == sorted([str(c) for c in recipe_colors]):
-                                res_name = recipe_name
-                                res_color = [180, 70, 255]
-                                break
-                    station["held_item"] = {
-                        "name": res_name,
-                        "color": res_color,
-                        "is_processed": True,
-                        "is_vessel": False,
-                        "bundle": [],
-                        "dish_name": None
-                    }
-                    station["is_cooking"] = False
-                    station["progress"] = 0
+        # NOTE: Station state (held_item, progress, is_cooking) is NOW managed entirely by clients.
+        # Server only maintains vessel_count for respawning.
+        # This prevents the server from creating items that diverge from client view.
 
     def to_dict(self):
+        # Sanitize stations: remove held_item state that's managed by clients
+        # Only keep vessel_count for Vessel Return respawn tracking
+        sanitized_stations = {}
+        for name, station in self.stations.items():
+            sanitized_stations[name] = {
+                "name": station["name"],
+                "x": station["x"],
+                "y": station["y"],
+                "w": station["w"],
+                "h": station["h"],
+                "color": station["color"],
+                "progress": 0.0,  # Client manages progress for cooking stations
+                "is_cooking": False,  # Client manages cooking state
+                "vessel_count": station.get("vessel_count", 0),
+                "held_item": None  # Client manages all held items now
+            }
+        
         return {
             "state": self.state,
             "score": self.score,
             "game_timer": max(0, self.game_timer),
             "frame": self.frame,
             "orders": self.orders,
-            "stations": self.stations,
+            "stations": sanitized_stations,
             "station_locks": self.station_locks
         }
 

@@ -716,30 +716,15 @@ class Game {
                                     const clientStation = this.stations.find(s => s.name === stationName);
                                     if (!clientStation) continue;
 
-                                    // Never let server touch Logic Filter (local only)
-                                    if (stationName === "Logic Filter") continue;
-                                    // Skip locally-protected stations (Dream Visualizer during cook)
-                                    if (this.modifiedStations.has(stationName)) continue;
+                                    // Station items and cooking state are now managed entirely by the client
+                                    // Server only sends vessel_count for tracking respawns
+                                    // This prevents the server from overwriting client-managed state
 
-                                    const localDishName = clientStation.heldItem?.dishName;
-                                    const localDishColor = clientStation.heldItem?.dishColor;
-                                    const localBundle = clientStation.heldItem?.bundle ? [...clientStation.heldItem.bundle] : [];
-
-                                    clientStation.heldItem = serverStation.held_item ?
-                                        this.deserializeItem(serverStation.held_item) : null;
-
-                                    if (clientStation.heldItem && clientStation.heldItem.isVessel) {
-                                        if (localDishName) clientStation.heldItem.dishName = localDishName;
-                                        if (localDishColor) clientStation.heldItem.dishColor = localDishColor;
-                                        if (localBundle.length > 0) clientStation.heldItem.bundle = localBundle;
+                                    if (clientStation.name === "Vessel Return") {
+                                        // Only sync vessel_count for Vessel Return respawn tracking
+                                        clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
                                     }
-
-                                    if (clientStation.name !== "Dream Visualizer") {
-                                        clientStation.progress = serverStation.progress;
-                                        clientStation.isCooking = serverStation.is_cooking;
-                                    }
-
-                                    clientStation.vesselCount = Math.min(3, serverStation.vessel_count);
+                                    // All other station state (heldItem, progress, isCooking) is client-managed
                                 }
                             }
 
