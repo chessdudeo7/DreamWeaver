@@ -1048,10 +1048,13 @@
                     for (let stationName in serverState.stations) {
                         const serverStation = serverState.stations[stationName];
                         const localStation = game.stations.find(s => s.name === stationName);
-                        if (localStation) {
-                            // Only update crates from server — other stations manage themselves
-                            if (stationName.includes("Crate")) {
+                        if (localStation && stationName.includes("Crate")) {
+                            // Only overwrite if server has an item, or if local is empty
+                            // This preserves initial vessel setup without overwriting with null
+                            if (serverStation.held_item !== null) {
                                 localStation.heldItem = game.deserializeItem(serverStation.held_item);
+                            } else if (!localStation.heldItem) {
+                                localStation.heldItem = null;
                             }
                         }
                     }
