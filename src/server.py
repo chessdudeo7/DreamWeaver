@@ -161,9 +161,22 @@ class GameState:
         # Serves are only responsible for tracking the total count, never going above 3.
         # This prevents the server from creating items that diverge from client view.
 
+    def serialize_item(self, item):
+        """Convert item dict to JSON-serializable format."""
+        if not item:
+            return None
+        return {
+            "name": item.get("name"),
+            "color": item.get("color"),
+            "is_processed": item.get("is_processed", False),
+            "is_vessel": item.get("is_vessel", False),
+            "bundle": item.get("bundle", []),
+            "dish_name": item.get("dish_name"),
+            "dish_color": item.get("dish_color")
+        }
+
     def to_dict(self):
-        # Sanitize stations: remove held_item state that's managed by clients
-        # Only keep vessel_count for Vessel Return respawn tracking
+        # Include actual station held_item state so all clients stay in sync
         sanitized_stations = {}
         for name, station in self.stations.items():
             sanitized_stations[name] = {
@@ -176,7 +189,7 @@ class GameState:
                 "progress": 0.0,  # Client manages progress for cooking stations
                 "is_cooking": False,  # Client manages cooking state
                 "vessel_count": 0,
-                "held_item": None  # Client manages all held items now
+                "held_item": self.serialize_item(station["held_item"])  # Now synced across all players
             }
         
         return {
@@ -299,6 +312,25 @@ async def handle_client(websocket):
                                 p["y"] = request.get("y", p["y"])
                                 p["heldItem"] = request.get("heldItem")
                                 break
+
+                        # Handle station item updates from client
+                        station_updates = request.get("station_updates", {})
+                        for station_name, updates in station_updates.items():
+                            if station_name in game_state.stations:
+                                # Deserialize the held_item if provided
+                                held_item_data = updates.get("held_item")
+                                if held_item_data:
+                                    game_state.stations[station_name]["held_item"] = {
+                                        "name": held_item_data.get("name"),
+                                        "color": held_item_data.get("color"),
+                                        "is_processed": held_item_data.get("is_processed", False),
+                                        "is_vessel": held_item_data.get("is_vessel", False),
+                                        "bundle": held_item_data.get("bundle", []),
+                                        "dish_name": held_item_data.get("dish_name"),
+                                        "dish_color": held_item_data.get("dish_color")
+                                    }
+                                else:
+                                    game_state.stations[station_name]["held_item"] = None
 
                         # Handle processor station locking
                         processor_stations = ["Logic Filter", "Dream Visualizer"]

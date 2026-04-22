@@ -661,12 +661,33 @@
                         bundle: this.player.heldItem.bundle,
                         dishName: this.player.heldItem.dishName
                     } : null;
+                    
+                    // Send updates for modified crates so all players see changes
+                    const stationUpdates = {};
+                    for (let stationName of this.modifiedStations) {
+                        const station = this.stations.find(s => s.name === stationName);
+                        if (station && station.name.includes("Crate")) {
+                            stationUpdates[stationName] = {
+                                held_item: station.heldItem ? {
+                                    name: station.heldItem.name,
+                                    color: station.heldItem.color,
+                                    is_processed: station.heldItem.isProcessed,
+                                    is_vessel: station.heldItem.isVessel,
+                                    bundle: station.heldItem.bundle,
+                                    dish_name: station.heldItem.dishName,
+                                    dish_color: station.heldItem.dishColor
+                                } : null
+                            };
+                        }
+                    }
+                    
                     this.network.sendRaw({
                         action: "SYNC",
                         x: Math.round(this.player.x),
                         y: Math.round(this.player.y),
                         heldItem: heldItemData,
-                        interact_station: this.logicFilterProcessing ? "Logic Filter" : null
+                        interact_station: this.logicFilterProcessing ? "Logic Filter" : null,
+                        station_updates: stationUpdates
                     });
                 }
 
@@ -1021,6 +1042,21 @@
                     game.score = serverState.score;
                     game.orders = serverState.orders;
                 }
+                
+                // Sync station held items from server state
+                if (serverState.stations) {
+                    for (let stationName in serverState.stations) {
+                        const serverStation = serverState.stations[stationName];
+                        const localStation = game.stations.find(s => s.name === stationName);
+                        if (localStation) {
+                            // Only update crates from server — other stations manage themselves
+                            if (stationName.includes("Crate")) {
+                                localStation.heldItem = game.deserializeItem(serverStation.held_item);
+                            }
+                        }
+                    }
+                }
+                
                 if (serverState.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
