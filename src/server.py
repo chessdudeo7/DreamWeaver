@@ -115,10 +115,20 @@ class GameState:
                 "vessel_count": 0
             }
             self.station_locks[name] = None
-
-        # NOTE: Stations items are now managed entirely by the client.
-        # Server only tracks vessel_count at Vessel Return for respawning.
-        # This prevents state desync where client picks up items but server still has them.
+        
+        # Initialize 3 vessels in the crates to match client state
+        crate_names = ["Crate 1", "Crate 2", "Crate 3"]
+        for i, crate_name in enumerate(crate_names):
+            if crate_name in self.stations:
+                self.stations[crate_name]["held_item"] = {
+                    "name": "Vessel",
+                    "color": [240, 240, 255],
+                    "is_processed": False,
+                    "is_vessel": True,
+                    "bundle": [],
+                    "dish_name": None,
+                    "dish_color": None
+                }
 
     def _spawn_initial_orders(self):
         for _ in range(3):
@@ -186,8 +196,8 @@ class GameState:
                 "w": station["w"],
                 "h": station["h"],
                 "color": station["color"],
-                "progress": 0.0,  # Client manages progress for cooking stations
-                "is_cooking": False,  # Client manages cooking state
+                "progress": station.get("progress", 0.0),  # Sync cooking progress for Dream Visualizer
+                "is_cooking": station.get("is_cooking", False),  # Sync cooking state for Dream Visualizer
                 "vessel_count": 0,
                 "held_item": self.serialize_item(station["held_item"])  # Now synced across all players
             }
@@ -331,6 +341,12 @@ async def handle_client(websocket):
                                     }
                                 else:
                                     game_state.stations[station_name]["held_item"] = None
+                                
+                                # Update Dream Visualizer cooking state if provided
+                                if "is_cooking" in updates:
+                                    game_state.stations[station_name]["is_cooking"] = updates.get("is_cooking", False)
+                                if "progress" in updates:
+                                    game_state.stations[station_name]["progress"] = updates.get("progress", 0.0)
 
                         # Handle processor station locking
                         processor_stations = ["Logic Filter", "Dream Visualizer"]
