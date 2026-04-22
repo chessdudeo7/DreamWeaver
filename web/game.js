@@ -649,11 +649,10 @@
                 const dy = (this.keys['ArrowDown'] ? 1 : 0) - (this.keys['ArrowUp'] ? 1 : 0);
                 if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-                // Network sync
+                // Network sync — fire and forget, responses come via onBroadcast
                 const now = Date.now();
                 if (this.network.connected && this.player && (now - this.lastSyncTime) >= this.syncInterval) {
                     this.lastSyncTime = now;
-
                     const heldItemData = this.player.heldItem ? {
                         name: this.player.heldItem.name,
                         color: this.player.heldItem.color,
@@ -662,67 +661,12 @@
                         bundle: this.player.heldItem.bundle,
                         dishName: this.player.heldItem.dishName
                     } : null;
-
-                    this.network.send({
+                    this.network.sendRaw({
                         action: "SYNC",
                         x: Math.round(this.player.x),
                         y: Math.round(this.player.y),
                         heldItem: heldItemData,
                         interact_station: this.logicFilterProcessing ? "Logic Filter" : null
-                    }).then(res => {
-                        if (res && res.status === "success") {
-                            const timeSinceInteraction = Date.now() - this.lastInteractionTime;
-
-                            // Sync other players' positions and held items
-                            for (let p of res.players) {
-                                if (p.id !== this.myId && this.playersDict[p.id]) {
-                                    this.playersDict[p.id].x = p.x;
-                                    this.playersDict[p.id].y = p.y;
-                                    if (p.heldItem) {
-                                        const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
-                                        item.bundle = p.heldItem.bundle || [];
-                                        item.dishName = p.heldItem.dishName;
-                                        this.playersDict[p.id].heldItem = item;
-                                    } else {
-                                        this.playersDict[p.id].heldItem = null;
-                                    }
-                                }
-                                // Own player: do NOT overwrite from server — we manage locally
-                            }
-
-                            if (res.game_state) {
-                                const serverState = res.game_state;
-                                if (serverState.game_timer > 0 && Math.abs(serverState.game_timer - this.gameTimer) < 5) {
-                                    this.gameTimer = serverState.game_timer;
-                                }
-                                this.frame = serverState.frame;
-
-                                // Only accept server score/orders outside the delivery debounce window
-                                if (Date.now() - this.lastDeliveryTime > 500) {
-                                    this.score = serverState.score;
-                                    this.orders = serverState.orders;
-                                }
-
-                                if (serverState.stations) {
-                                    for (let stationName in serverState.stations) {
-                                        const serverStation = serverState.stations[stationName];
-                                        const clientStation = this.stations.find(s => s.name === stationName);
-                                        if (!clientStation) continue;
-
-                                        // Station items and cooking state are now managed entirely by the client
-                                        // Server only sends vessel_count for tracking respawns
-                                        // Skip locally-protected stations (including Vessel Return during pickups)
-                                        if (this.modifiedStations.has(stationName)) continue;
-                                        // All other station state (heldItem, progress, isCooking) is client-managed
-                                    }
-                                }
-
-                                if (serverState.state === "LEVEL_COMPLETE") {
-                                    this.gameState = "LEVEL_COMPLETE";
-                                    this.showLevelComplete();
-                                }
-                            }
-                        }
                     });
                 }
 
@@ -1038,6 +982,39 @@
 
             game.network.onLevelLoad = (level) => {
                 game.loadLevel(level);
+            };
+
+            game.network.onBroadcast = (data) => {
+                if (game.gameState !== "PLAYING") return;
+                if (!data.players || !data.game_state) return;
+
+                for (let p of data.players) {
+                    if (p.id !== game.myId && game.playersDict[p.id]) {
+                        game.playersDict[p.id].x = p.x;
+                        game.playersDict[p.id].y = p.y;
+                        if (p.heldItem) {
+                            const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
+                            item.bundle = p.heldItem.bundle || [];
+                            item.dishName = p.heldItem.dishName;
+                            game.playersDict[p.id].heldItem = item;
+                        } else {
+                            game.playersDict[p.id].heldItem = null;
+                        }
+                    }
+                }
+
+                const serverState = data.game_state;
+                if (serverState.game_timer > 0 && Math.abs(serverState.game_timer - game.gameTimer) < 5) {
+                    game.gameTimer = serverState.game_timer;
+                }
+                if (Date.now() - game.lastDeliveryTime > 500) {
+                    game.score = serverState.score;
+                    game.orders = serverState.orders;
+                }
+                if (serverState.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
+                    game.gameState = "LEVEL_COMPLETE";
+                    game.showLevelComplete();
+                }
             };
         } catch (e) {
             console.log('Server connection failed - local mode only:', e);

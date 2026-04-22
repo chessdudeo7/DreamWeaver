@@ -35,6 +35,12 @@ room_connections = {}
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
 
+def make_response(data, rid=None):
+    """Add request ID to response if provided, so client can match it."""
+    if rid is not None:
+        data['_rid'] = rid
+    return json.dumps(data)
+
 async def schedule_vessel_respawn(room_code, delay=5.0):
     await asyncio.sleep(delay)
     if room_code not in rooms or room_code not in room_connections:
@@ -215,6 +221,7 @@ async def handle_client(websocket):
         async for message in websocket:
             request = json.loads(message)
             action = request.get("action")
+            rid = request.get("_rid")  # may be None for fire-and-forget messages
             response = {"status": "error", "message": "Unknown action"}
 
             if action == "CREATE":
@@ -375,7 +382,7 @@ async def handle_client(websocket):
                         
                         continue  # Skip individual response, broadcast handles it
 
-            await websocket.send(json.dumps(response))
+            await websocket.send(make_response(response, rid))
 
     except websockets.exceptions.ConnectionClosed:
         pass
