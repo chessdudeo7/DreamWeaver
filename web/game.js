@@ -745,12 +745,22 @@
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
                         if (!pItem.isProcessed || (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush")) {
                             sItem.bundle.push(pItem.color);
-                            this.player.heldItem = null;
+                            // Pick up the modified vessel so the bundle update syncs to server
+                            this.player.heldItem = sItem;
+                            s.heldItem = null;
                         } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
                             sItem.dishName = pItem.name;
                             sItem.dishColor = pItem.color;
-                            this.player.heldItem = null;
+                            // Pick up the modified vessel so the dish addition syncs to server
+                            this.player.heldItem = sItem;
+                            s.heldItem = null;
                         }
+                    } else if (!pItem.isVessel && !sItem.isVessel && !pItem.isProcessed && !sItem.isProcessed) {
+                        // Bundle multiple unprocessed orbs together on the crate
+                        sItem.bundle.push(pItem.color);
+                        // Pick up the modified orb bundle so it syncs to server
+                        this.player.heldItem = sItem;
+                        s.heldItem = null;
                     }
                 } else if (!this.player.heldItem && s.heldItem) {
                     this.player.heldItem = s.heldItem;
