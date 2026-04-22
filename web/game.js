@@ -780,24 +780,15 @@
                             s.heldItem = null;
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
+                        // Player has orb, crate has vessel — add orb to vessel's bundle, player ends up empty
                         if (!pItem.isProcessed || (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush")) {
                             sItem.bundle.push(pItem.color);
-                            // Pick up the modified vessel so the bundle update syncs to server
-                            this.player.heldItem = sItem;
-                            s.heldItem = null;
+                            this.player.heldItem = null; // player drops the orb onto the vessel
                         } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
                             sItem.dishName = pItem.name;
                             sItem.dishColor = pItem.color;
-                            // Pick up the modified vessel so the dish addition syncs to server
-                            this.player.heldItem = sItem;
-                            s.heldItem = null;
+                            this.player.heldItem = null;
                         }
-                    } else if (!pItem.isVessel && !sItem.isVessel && !pItem.isProcessed && !sItem.isProcessed) {
-                        // Bundle multiple unprocessed orbs together on the crate
-                        sItem.bundle.push(pItem.color);
-                        // Pick up the modified orb bundle so it syncs to server
-                        this.player.heldItem = sItem;
-                        s.heldItem = null;
                     }
                 } else if (!this.player.heldItem && s.heldItem) {
                     this.player.heldItem = s.heldItem;
