@@ -664,36 +664,34 @@
                     
                     // Send updates for modified crates so all players see changes
                     const stationUpdates = {};
-                    for (let stationName of this.modifiedStations) {
-                        const station = this.stations.find(s => s.name === stationName);
-                        if (station) {
-                            if (station.name.includes("Crate")) {
-                                stationUpdates[stationName] = {
-                                    held_item: station.heldItem ? {
-                                        name: station.heldItem.name,
-                                        color: station.heldItem.color,
-                                        is_processed: station.heldItem.isProcessed,
-                                        is_vessel: station.heldItem.isVessel,
-                                        bundle: station.heldItem.bundle,
-                                        dish_name: station.heldItem.dishName,
-                                        dish_color: station.heldItem.dishColor
-                                    } : null
-                                };
-                            } else if (station.name === "Dream Visualizer") {
-                                stationUpdates[stationName] = {
-                                    is_cooking: station.isCooking,
-                                    progress: station.progress,
-                                    held_item: station.heldItem ? {
-                                        name: station.heldItem.name,
-                                        color: station.heldItem.color,
-                                        is_processed: station.heldItem.isProcessed,
-                                        is_vessel: station.heldItem.isVessel,
-                                        bundle: station.heldItem.bundle,
-                                        dish_name: station.heldItem.dishName,
-                                        dish_color: station.heldItem.dishColor
-                                    } : null
-                                };
-                            }
+                    for (let s of this.stations) {
+                        if (s.name.includes("Crate")) {
+                            stationUpdates[s.name] = {
+                                held_item: s.heldItem ? {
+                                    name: s.heldItem.name,
+                                    color: s.heldItem.color,
+                                    is_processed: s.heldItem.isProcessed,
+                                    is_vessel: s.heldItem.isVessel,
+                                    bundle: s.heldItem.bundle,
+                                    dish_name: s.heldItem.dishName,
+                                    dish_color: s.heldItem.dishColor
+                                } : null
+                            };
+                        }
+                        if (s.name === "Dream Visualizer" && this.modifiedStations.has("Dream Visualizer")) {
+                            stationUpdates[s.name] = {
+                                is_cooking: s.isCooking,
+                                progress: s.progress,
+                                held_item: s.heldItem ? {
+                                    name: s.heldItem.name,
+                                    color: s.heldItem.color,
+                                    is_processed: s.heldItem.isProcessed,
+                                    is_vessel: s.heldItem.isVessel,
+                                    bundle: s.heldItem.bundle,
+                                    dish_name: s.heldItem.dishName,
+                                    dish_color: s.heldItem.dishColor
+                                } : null
+                            };
                         }
                     }
                     
@@ -1055,25 +1053,18 @@
                     for (let stationName in serverState.stations) {
                         const serverStation = serverState.stations[stationName];
                         const localStation = game.stations.find(s => s.name === stationName);
-                        if (localStation) {
-                            // Always sync Dream Visualizer cooking state
-                            if (stationName === "Dream Visualizer") {
+                        if (!localStation) continue;
+
+                        if (stationName === "Dream Visualizer") {
+                            // Dream Visualizer is locally managed — only sync if not cooking locally
+                            if (!localStation.isCooking) {
                                 localStation.isCooking = serverStation.is_cooking;
                                 localStation.progress = serverStation.progress;
-                                // Only update held_item if server has something
-                                if (serverStation.held_item !== null) {
-                                    localStation.heldItem = game.deserializeItem(serverStation.held_item);
-                                }
-                            } else if (stationName.includes("Crate")) {
-                                // For crates: always trust server state if it has an item,
-                                // or if we're picking something up (going from item to null)
-                                if (serverStation.held_item !== null) {
-                                    localStation.heldItem = game.deserializeItem(serverStation.held_item);
-                                } else if (localStation.heldItem && !localStation.heldItem.isVessel) {
-                                    // Trust server if it says crate is empty but we have a non-vessel item
-                                    localStation.heldItem = null;
-                                }
+                                localStation.heldItem = game.deserializeItem(serverStation.held_item);
                             }
+                        } else if (stationName.includes("Crate")) {
+                            // Always trust server for crate state
+                            localStation.heldItem = game.deserializeItem(serverStation.held_item);
                         }
                     }
                 }
