@@ -661,47 +661,12 @@
                         bundle: this.player.heldItem.bundle,
                         dishName: this.player.heldItem.dishName
                     } : null;
-                    
-                    // Send updates for modified crates so all players see changes
-                    const stationUpdates = {};
-                    for (let s of this.stations) {
-                        if (s.name.includes("Crate")) {
-                            stationUpdates[s.name] = {
-                                held_item: s.heldItem ? {
-                                    name: s.heldItem.name,
-                                    color: s.heldItem.color,
-                                    is_processed: s.heldItem.isProcessed,
-                                    is_vessel: s.heldItem.isVessel,
-                                    bundle: s.heldItem.bundle,
-                                    dish_name: s.heldItem.dishName,
-                                    dish_color: s.heldItem.dishColor
-                                } : null
-                            };
-                        }
-                        if (s.name === "Dream Visualizer" && this.modifiedStations.has("Dream Visualizer")) {
-                            stationUpdates[s.name] = {
-                                is_cooking: s.isCooking,
-                                progress: s.progress,
-                                held_item: s.heldItem ? {
-                                    name: s.heldItem.name,
-                                    color: s.heldItem.color,
-                                    is_processed: s.heldItem.isProcessed,
-                                    is_vessel: s.heldItem.isVessel,
-                                    bundle: s.heldItem.bundle,
-                                    dish_name: s.heldItem.dishName,
-                                    dish_color: s.heldItem.dishColor
-                                } : null
-                            };
-                        }
-                    }
-                    
                     this.network.sendRaw({
                         action: "SYNC",
                         x: Math.round(this.player.x),
                         y: Math.round(this.player.y),
                         heldItem: heldItemData,
-                        interact_station: this.logicFilterProcessing ? "Logic Filter" : null,
-                        station_updates: stationUpdates
+                        interact_station: this.logicFilterProcessing ? "Logic Filter" : null
                     });
                 }
 
@@ -778,10 +743,9 @@
                             s.heldItem = null;
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
-                        // Player has orb, crate has vessel — add orb to vessel's bundle, player ends up empty
                         if (!pItem.isProcessed || (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush")) {
                             sItem.bundle.push(pItem.color);
-                            this.player.heldItem = null; // player drops the orb onto the vessel
+                            this.player.heldItem = null;
                         } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
                             sItem.dishName = pItem.name;
                             sItem.dishColor = pItem.color;
@@ -1047,28 +1011,6 @@
                     game.score = serverState.score;
                     game.orders = serverState.orders;
                 }
-                
-                // Sync station held items and cooking state from server
-                if (serverState.stations) {
-                    for (let stationName in serverState.stations) {
-                        const serverStation = serverState.stations[stationName];
-                        const localStation = game.stations.find(s => s.name === stationName);
-                        if (!localStation) continue;
-
-                        if (stationName === "Dream Visualizer") {
-                            // Dream Visualizer is locally managed — only sync if not cooking locally
-                            if (!localStation.isCooking) {
-                                localStation.isCooking = serverStation.is_cooking;
-                                localStation.progress = serverStation.progress;
-                                localStation.heldItem = game.deserializeItem(serverStation.held_item);
-                            }
-                        } else if (stationName.includes("Crate")) {
-                            // Always trust server for crate state
-                            localStation.heldItem = game.deserializeItem(serverStation.held_item);
-                        }
-                    }
-                }
-                
                 if (serverState.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
