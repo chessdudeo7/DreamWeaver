@@ -36,7 +36,6 @@ def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
 
 def make_response(data, rid=None):
-    """Add request ID to response if provided, so client can match it."""
     if rid is not None:
         data['_rid'] = rid
     return json.dumps(data)
@@ -45,16 +44,17 @@ async def schedule_vessel_respawn(room_code, delay=5.0):
     await asyncio.sleep(delay)
     if room_code not in rooms or room_code not in room_connections:
         return
-    # Just tell all clients a respawn is available — they decide if they need it
-    msg = json.dumps({"status": "vessel_respawn"})
-    disconnected = []
-    for conn in room_connections[room_code]:
-        try:
-            await conn.send(msg)
-        except websockets.exceptions.ConnectionClosed:
-            disconnected.append(conn)
-    for conn in disconnected:
-        room_connections[room_code].remove(conn)
+    game_state = rooms[room_code].get("game_state")
+    if not game_state:
+        return
+    # Add a vessel to Vessel Return station on the server, capped at 3 total
+    total = game_state.count_total_vessels(rooms[room_code]["players_dict"])
+    if total < 3:
+        vr = game_state.stations.get("Vessel Return")
+        if vr:
+            vr["vessel_count"] = min(3, vr["vessel_count"] + 1)
+    # Broadcast the updated state so all clients see the new vessel
+    await broadcast_room(room_code, rooms, room_connections)
 
 class GameState:
     def __init__(self, level=1):
@@ -116,9 +116,19 @@ class GameState:
             }
             self.station_locks[name] = None
 
-        # NOTE: Stations items are now managed entirely by the client.
-        # Server only tracks vessel_count at Vessel Return for respawning.
-        # This prevents state desync where client picks up items but server still has them.
+        # Place exactly 3 vessels in the crates at game start
+        for i in range(1, 4):
+            crate_name = f"Crate {i}"
+            if crate_name in self.stations:
+                self.stations[crate_name]["held_item"] = {
+                    "name": "Vessel",
+                    "color": [240, 240, 255],
+                    "is_processed": False,
+                    "is_vessel": True,
+                    "bundle": [],
+                    "dish_name": None,
+                    "dish_color": None
+                }
 
     def _spawn_initial_orders(self):
         for _ in range(3):
@@ -135,6 +145,21 @@ class GameState:
             "max": 60.0,
             "recipe": RECIPES[name]
         })
+
+    def count_total_vessels(self, players_dict):
+        """Count all vessels in the world to enforce the cap of 3."""
+        count = 0
+        for station in self.stations.values():
+            item = station.get("held_item")
+            if item and item.get("is_vessel"):
+                count += 1
+            if station["name"] == "Vessel Return":
+                count += station["vessel_count"]
+        for p in players_dict.values():
+            held = p.get("heldItem")
+            if held and held.get("isVessel"):
+                count += 1
+        return count
 
     def update(self, dt, players_dict=None):
         self.game_timer -= dt
@@ -157,35 +182,66 @@ class GameState:
                 remaining.append(o)
         self.orders = remaining
 
-        # NOTE: Vessel respawning is now handled directly in DELIVER handler.
-        # Serves are only responsible for tracking the total count, never going above 3.
-        # This prevents the server from creating items that diverge from client view.
+    def apply_station_update(self, station_name, new_held_item, players_dict, client_id):
+        """
+        Apply a station item change from a client.
+        Returns True if the update was accepted, False if rejected.
+        """
+        if station_name not in self.stations:
+            return False
+
+        station = self.stations[station_name]
+
+        # Dream Visualizer: only the lock holder can update it while cooking
+        if station_name == "Dream Visualizer":
+            lock = self.station_locks.get(station_name)
+            if station["is_cooking"] and lock is not None and lock != client_id:
+                return False  # Another player is cooking, reject
+
+        # Vessel Return: handled separately via vessel_count, not held_item
+        if station_name == "Vessel Return":
+            return False
+
+        station["held_item"] = new_held_item
+        return True
+
+    def apply_dream_visualizer_cook(self, bundle, is_cooking, result_item, client_id):
+        """Start or finish cooking in the Dream Visualizer."""
+        station = self.stations.get("Dream Visualizer")
+        if not station:
+            return False
+        lock = self.station_locks.get("Dream Visualizer")
+        if lock is not None and lock != client_id:
+            return False  # Another player has the lock
+
+        if is_cooking:
+            station["is_cooking"] = True
+            station["progress"] = 0.0
+            station["held_item"] = {
+                "name": "Bundle",
+                "color": [240, 240, 255],
+                "is_processed": True,
+                "is_vessel": False,
+                "bundle": bundle,
+                "dish_name": None,
+                "dish_color": None
+            }
+            self.station_locks["Dream Visualizer"] = client_id
+        elif result_item is not None:
+            # Cooking done — store the result
+            station["is_cooking"] = False
+            station["progress"] = 0.0
+            station["held_item"] = result_item
+        return True
 
     def to_dict(self):
-        # Sanitize stations: remove held_item state that's managed by clients
-        # Only keep vessel_count for Vessel Return respawn tracking
-        sanitized_stations = {}
-        for name, station in self.stations.items():
-            sanitized_stations[name] = {
-                "name": station["name"],
-                "x": station["x"],
-                "y": station["y"],
-                "w": station["w"],
-                "h": station["h"],
-                "color": station["color"],
-                "progress": 0.0,  # Client manages progress for cooking stations
-                "is_cooking": False,  # Client manages cooking state
-                "vessel_count": 0,
-                "held_item": None  # Client manages all held items now
-            }
-        
         return {
             "state": self.state,
             "score": self.score,
             "game_timer": max(0, self.game_timer),
             "frame": self.frame,
             "orders": self.orders,
-            "stations": sanitized_stations,
+            "stations": self.stations,   # Full station state including held_item
             "station_locks": self.station_locks
         }
 
@@ -221,7 +277,7 @@ async def handle_client(websocket):
         async for message in websocket:
             request = json.loads(message)
             action = request.get("action")
-            rid = request.get("_rid")  # may be None for fire-and-forget messages
+            rid = request.get("_rid")
             response = {"status": "error", "message": "Unknown action"}
 
             if action == "CREATE":
@@ -275,7 +331,6 @@ async def handle_client(websocket):
                 if current_room and current_room in rooms:
                     level = request.get("level", 1)
                     rooms[current_room]["game_state"] = GameState(level)
-                    # Broadcast to all players so everyone transitions together
                     if current_room in room_connections:
                         broadcast_msg = json.dumps({"status": "level_load", "level": level})
                         disconnected = []
@@ -286,7 +341,7 @@ async def handle_client(websocket):
                                 disconnected.append(conn)
                         for conn in disconnected:
                             room_connections[current_room].remove(conn)
-                    continue  # broadcast handled it, skip individual response
+                    continue
 
             elif action == "SYNC":
                 if current_room and current_room in rooms:
@@ -314,7 +369,6 @@ async def handle_client(websocket):
                                 game_state.station_locks[player_station] = client_id
                             elif current_user == client_id:
                                 pass
-                            # else: another player has it, ignore
 
                         dt = time() - game_state.last_update_time
                         game_state.update(dt, rooms[current_room]["players_dict"])
@@ -326,7 +380,6 @@ async def handle_client(websocket):
                             "game_state": game_state.to_dict()
                         }
 
-                        # Broadcast to all players in room
                         if current_room in room_connections:
                             broadcast_msg = json.dumps(response)
                             disconnected = []
@@ -338,9 +391,79 @@ async def handle_client(websocket):
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
 
-                        continue  # Already broadcasted, skip individual send
+                        continue
                     else:
                         response = {"status": "success", "players": list(rooms[current_room]["players_dict"].values())}
+
+            elif action == "STATION_UPDATE":
+                # A player interacted with a station — update server state and broadcast
+                if current_room and current_room in rooms:
+                    game_state = rooms[current_room]["game_state"]
+                    if game_state:
+                        station_name = request.get("station_name")
+                        new_held_item = request.get("held_item")  # None means station is now empty
+                        update_type = request.get("update_type", "item")  # "item", "dream_cook_start", "dream_cook_done", "vessel_take"
+
+                        accepted = False
+
+                        if update_type == "vessel_take":
+                            # Player is taking a vessel from Vessel Return
+                            vr = game_state.stations.get("Vessel Return")
+                            if vr and vr["vessel_count"] > 0:
+                                vr["vessel_count"] -= 1
+                                accepted = True
+
+                        elif update_type == "dream_cook_start":
+                            bundle = request.get("bundle", [])
+                            accepted = game_state.apply_dream_visualizer_cook(bundle, True, None, client_id)
+
+                        elif update_type == "dream_cook_done":
+                            result_item = request.get("result_item")
+                            accepted = game_state.apply_dream_visualizer_cook(None, False, result_item, client_id)
+                            if accepted:
+                                # Release the lock now that cooking is done
+                                game_state.station_locks["Dream Visualizer"] = None
+
+                        elif update_type == "dream_pickup":
+                            # Player picked up the finished orb from Dream Visualizer
+                            dv = game_state.stations.get("Dream Visualizer")
+                            if dv:
+                                dv["held_item"] = None
+                                dv["is_cooking"] = False
+                                game_state.station_locks["Dream Visualizer"] = None
+                                accepted = True
+
+                        elif station_name:
+                            accepted = game_state.apply_station_update(
+                                station_name, new_held_item,
+                                rooms[current_room]["players_dict"], client_id
+                            )
+
+                        if accepted:
+                            # Broadcast updated state to all players
+                            if current_room in room_connections:
+                                broadcast_msg = json.dumps({
+                                    "status": "success",
+                                    "players": list(rooms[current_room]["players_dict"].values()),
+                                    "game_state": game_state.to_dict()
+                                })
+                                disconnected = []
+                                for conn in room_connections[current_room]:
+                                    try:
+                                        await conn.send(broadcast_msg)
+                                    except websockets.exceptions.ConnectionClosed:
+                                        disconnected.append(conn)
+                                for conn in disconnected:
+                                    room_connections[current_room].remove(conn)
+                            continue
+                        else:
+                            # Rejected — send the current authoritative state back to just this client
+                            # so they can reconcile
+                            response = {
+                                "status": "rejected",
+                                "game_state": game_state.to_dict(),
+                                "players": list(rooms[current_room]["players_dict"].values())
+                            }
 
             elif action == "DELIVER":
                 if current_room and current_room in rooms:
@@ -360,11 +483,9 @@ async def handle_client(websocket):
                         if not delivered:
                             game_state.score = max(0, game_state.score - 15)
 
-                        # If a vessel was delivered, return it to Vessel Return (capped at 3 total)
                         if is_vessel and delivered:
                             asyncio.create_task(schedule_vessel_respawn(current_room, delay=5.0))
 
-                        # Broadcast updated state to all players
                         if current_room in room_connections:
                             broadcast_msg = json.dumps({
                                 "status": "success",
@@ -379,8 +500,8 @@ async def handle_client(websocket):
                                     disconnected.append(conn)
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
-                        
-                        continue  # Skip individual response, broadcast handles it
+
+                        continue
 
             await websocket.send(make_response(response, rid))
 

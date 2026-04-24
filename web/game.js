@@ -1,4 +1,4 @@
-    // ========== CONSTANTS ==========
+// ========== CONSTANTS ==========
     const WIDTH = 900, HEIGHT = 700;
     const MISSED_ORDER_PENALTY = 20;
     const FPS = 60;
@@ -80,6 +80,18 @@
             this.rotationAngle = 0;
         }
 
+        toServerFormat() {
+            return {
+                name: this.name,
+                color: this.color,
+                is_processed: this.isProcessed,
+                is_vessel: this.isVessel,
+                bundle: this.bundle,
+                dish_name: this.dishName,
+                dish_color: this.dishColor
+            };
+        }
+
         draw(ctx, x, y, scale = 1.0, onPlate = false) {
             const pulse = Math.sin(Date.now() * 0.01) * 2;
             const r = (12 + pulse) * scale;
@@ -147,6 +159,21 @@
             this.heldItem = null;
             this.isCooking = false;
             this.vesselCount = 0;
+        }
+
+        /** Apply server state to this station (called on every broadcast). */
+        applyServerState(serverStation) {
+            if (serverStation.held_item !== undefined) {
+                this.heldItem = deserializeItem(serverStation.held_item);
+            }
+            if (serverStation.vessel_count !== undefined) {
+                this.vesselCount = serverStation.vessel_count;
+            }
+            // Don't overwrite is_cooking/progress for Dream Visualizer — those are
+            // driven locally for smooth animation, only cooking START/DONE go to server.
+            if (this.name !== "Dream Visualizer") {
+                if (serverStation.is_cooking !== undefined) this.isCooking = serverStation.is_cooking;
+            }
         }
 
         draw(ctx, frame) {
@@ -290,6 +317,22 @@
         }
     }
 
+    // ========== HELPERS ==========
+
+    function deserializeItem(itemData) {
+        if (!itemData) return null;
+        const item = new Item(
+            itemData.name,
+            itemData.color,
+            itemData.is_processed ?? itemData.isProcessed ?? false,
+            itemData.is_vessel ?? itemData.isVessel ?? false
+        );
+        item.bundle = itemData.bundle || [];
+        item.dishName = itemData.dish_name ?? itemData.dishName ?? null;
+        item.dishColor = itemData.dish_color ?? itemData.dishColor ?? null;
+        return item;
+    }
+
     // ========== GAME MANAGER ==========
     class Game {
         constructor() {
@@ -313,8 +356,7 @@
             this.frame = 0;
             this.spawnTick = 0;
             this.redFlash = 0;
-            this.greenFlash = 0; // teal/green flash on correct delivery
-            this.vesselReturnProtectedUntil = 0;
+            this.greenFlash = 0;
 
             this.keys = {};
             this.mousePos = { x: 0, y: 0 };
@@ -324,14 +366,11 @@
             this.lastSyncTime = 0;
             this.syncInterval = 16;
 
-            this.currentProcessorStation = null;
             this.lastInteractionTime = 0;
             this.lastDeliveryTime = 0;
-            this.modifiedStations = new Set();
-            this.modifiedStationsTimeout = null;
 
             // Logic Filter: fully local state to avoid server-sync bugs
-            this.logicFilterProgress = 0; // 0..1, authoritative local value
+            this.logicFilterProgress = 0;
             this.logicFilterProcessing = false;
 
             this.setupEventListeners();
@@ -417,14 +456,13 @@
         }
 
         async nextLevel() {
-            if (!this.isHost) return; // only host can trigger level transitions
+            if (!this.isHost) return;
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             const nextLevelNum = (stars >= 1 && this.currentLevel < 2) ? 2 : this.currentLevel;
             if (this.network.connected) {
                 await this.network.send({ action: "LOAD_LEVEL", level: nextLevelNum });
-                // Host also loads via the broadcast, so no need to call loadLevel() separately
             } else {
-                this.loadLevel(nextLevelNum); // offline fallback
+                this.loadLevel(nextLevelNum);
             }
         }
 
@@ -477,7 +515,6 @@
             this.currentLevel = levelNum;
             this.gameTimer = 120;
             this.gameState = "PLAYING";
-            this.vesselReturnProtectedUntil = 0;
 
             this.playersDict = {};
             for (let p of this.connectedPlayers) {
@@ -495,7 +532,6 @@
             this.redFlash = 0;
             this.greenFlash = 0;
             this.lastDeliveryTime = 0;
-            this.modifiedStations.clear();
             this.logicFilterProgress = 0;
             this.logicFilterProcessing = false;
 
@@ -530,30 +566,28 @@
                 ];
             }
 
-            // Exactly 3 vessels in crates at start — this is the fixed world total
-            const crateStations = this.stations.filter(s => s.name.includes("Crate"));
-            for (let i = 0; i < 3; i++) {
-                crateStations[i].heldItem = new Item("Vessel", WHITE, false, true);
-            }
+            // NOTE: Vessels are now placed by the server at game start.
+            // The first broadcast will populate station state. No local seeding needed.
 
             for (let i = 0; i < 3; i++) {
                 this.addOrder();
             }
         }
 
-        // Count all vessels in the world — used to cap respawns at exactly 3
-        countTotalVessels() {
-            const inCrates = this.stations.filter(s => s.name.includes("Crate") && s.heldItem?.isVessel).length;
-            const atReturn = this.stations.reduce((sum, s) => s.name === "Vessel Return" ? sum + s.vesselCount : sum, 0);
-            const inHands = Object.values(this.playersDict).filter(p => p.heldItem?.isVessel).length;
-            const inDreamViz = this.stations.filter(s => s.name === "Dream Visualizer" && s.heldItem?.isVessel).length;
-            return inCrates + atReturn + inHands + inDreamViz;
-        }
-
         addOrder() {
             const names = Object.keys(RECIPES);
             const name = names[Math.floor(Math.random() * names.length)];
             this.orders.push({ name, time: 60, max: 60, recipe: RECIPES[name] });
+        }
+
+        /** Send a STATION_UPDATE to the server. Fire-and-forget. */
+        sendStationUpdate(payload) {
+            if (!this.network.connected || !this.network.ws) return;
+            try {
+                this.network.ws.send(JSON.stringify({ action: "STATION_UPDATE", ...payload }));
+            } catch (e) {
+                console.error("STATION_UPDATE send failed:", e);
+            }
         }
 
         update(dt) {
@@ -567,18 +601,13 @@
                 if (this.redFlash > 0) this.redFlash -= dt;
                 if (this.greenFlash > 0) this.greenFlash -= dt;
 
-                // NOTE: Vessel respawn is now handled server-side.
-                // Vessel Return's vesselCount is synced from server directly on delivery.
-                // No client-side timer needed anymore.
-
                 this.spawnTick += dt;
                 if (this.spawnTick > 15 && this.orders.length < 5) {
                     this.addOrder();
                     this.spawnTick = 0;
                 }
 
-                // ---- Logic Filter: fully local, never touches server state ----
-                // Find the station
+                // ---- Logic Filter: fully local ----
                 const lfStation = this.stations.find(s => s.name === "Logic Filter");
                 if (lfStation) {
                     const nearLF = this.player && this.collideRects(
@@ -590,28 +619,24 @@
                         !this.player.heldItem.isProcessed;
 
                     if (nearLF && hasUnprocessedOrb && this.keys[' ']) {
-                        // Advance progress
                         this.logicFilterProcessing = true;
                         this.logicFilterProgress = Math.min(1.0, this.logicFilterProgress + dt * 0.4);
                         lfStation.progress = this.logicFilterProgress;
 
                         if (this.logicFilterProgress >= 1.0) {
-                            // Done — mark processed and fully reset
                             this.player.heldItem.isProcessed = true;
                             this.logicFilterProgress = 0;
                             this.logicFilterProcessing = false;
                             lfStation.progress = 0;
                         }
                     } else {
-                        // Any condition broken — reset bar immediately
                         this.logicFilterProcessing = false;
                         this.logicFilterProgress = 0;
                         lfStation.progress = 0;
                     }
                 }
-                // ---------------------------------------------------------------
 
-                // Update remaining stations (highlight + Dream Visualizer cooking)
+                // Update stations: highlight + Dream Visualizer cooking animation
                 for (let s of this.stations) {
                     const playerNear = this.player && this.collideRects(
                         this.player.x - 2.5, this.player.y - 2.5, this.player.w + 5, this.player.h + 5,
@@ -619,7 +644,7 @@
                     );
                     s.isHighlighted = !!playerNear;
 
-                    // Dream Visualizer auto-cooks once started
+                    // Dream Visualizer: local cooking animation, tells server when done
                     if (s.name === "Dream Visualizer" && s.isCooking) {
                         s.progress += dt * 0.2;
                         if (s.progress >= 1.0) {
@@ -637,30 +662,29 @@
                                     }
                                 }
                             }
-                            s.heldItem = new Item(res, resColor, true);
+                            const resultItem = new Item(res, resColor, true);
+                            s.heldItem = resultItem;
                             s.isCooking = false;
                             s.progress = 0;
+                            // Tell server cooking is done
+                            this.sendStationUpdate({
+                                update_type: "dream_cook_done",
+                                result_item: resultItem.toServerFormat()
+                            });
                         }
                     }
                 }
 
-                // Player movement — unconditional, never blocked by anything
+                // Player movement
                 const dx = (this.keys['ArrowRight'] ? 1 : 0) - (this.keys['ArrowLeft'] ? 1 : 0);
                 const dy = (this.keys['ArrowDown'] ? 1 : 0) - (this.keys['ArrowUp'] ? 1 : 0);
                 if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-                // Network sync — fire and forget, responses come via onBroadcast
+                // Network sync
                 const now = Date.now();
                 if (this.network.connected && this.player && (now - this.lastSyncTime) >= this.syncInterval) {
                     this.lastSyncTime = now;
-                    const heldItemData = this.player.heldItem ? {
-                        name: this.player.heldItem.name,
-                        color: this.player.heldItem.color,
-                        isProcessed: this.player.heldItem.isProcessed,
-                        isVessel: this.player.heldItem.isVessel,
-                        bundle: this.player.heldItem.bundle,
-                        dishName: this.player.heldItem.dishName
-                    } : null;
+                    const heldItemData = this.player.heldItem ? this.player.heldItem.toServerFormat() : null;
                     this.network.sendRaw({
                         action: "SYNC",
                         x: Math.round(this.player.x),
@@ -670,7 +694,7 @@
                     });
                 }
 
-                // Spacebar interactions — one-shot on key-down only
+                // Spacebar interactions
                 const spacebarDown = this.keys[' '];
                 if (spacebarDown && !this.spacebarPressed) {
                     for (let s of this.stations) {
@@ -700,24 +724,6 @@
         handleStationInteraction(s) {
             this.lastInteractionTime = Date.now();
 
-            // Dream Visualizer cooking start doesn't get the short modifiedStations timeout —
-            // it protects itself permanently until orb pickup
-            const isDreamCook = s.name === "Dream Visualizer" &&
-                this.player.heldItem?.isVessel &&
-                this.player.heldItem.bundle.length > 0 &&
-                !s.isCooking;
-
-            if (s.name !== "Dream Visualizer" && s.name !== "Logic Filter") {
-                this.modifiedStations.add(s.name);
-                if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
-                this.modifiedStationsTimeout = setTimeout(() => {
-                    this.modifiedStations.forEach(name => {
-                        if (name !== "Dream Visualizer") this.modifiedStations.delete(name);
-                    });
-                    this.modifiedStationsTimeout = null;
-                }, 200);
-            }
-
             if (s.name === "Void Siphon" && this.player.heldItem) {
                 if (this.player.heldItem.isVessel) {
                     this.player.heldItem.bundle = [];
@@ -726,6 +732,7 @@
                 } else {
                     this.player.heldItem = null;
                 }
+                // Void Siphon doesn't hold items, no station update needed
 
             } else if (s.name.includes("Crate")) {
                 if (this.player.heldItem && s.heldItem) {
@@ -737,75 +744,85 @@
                             if (sItem.bundle.length > 0) pItem.bundle.push(...sItem.bundle);
                             else pItem.bundle.push(sItem.color);
                             s.heldItem = null;
+                            // Crate is now empty
+                            this.sendStationUpdate({ station_name: s.name, held_item: null, update_type: "item" });
                         } else if ((sItem.name in RECIPES || sItem.name === "Abstract Mush") && !pItem.bundle.length) {
                             pItem.dishName = sItem.name;
                             pItem.dishColor = sItem.color;
                             s.heldItem = null;
+                            this.sendStationUpdate({ station_name: s.name, held_item: null, update_type: "item" });
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
                         if (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush") {
-                            // Processed orb (not a finished dish) — add to bundle
                             sItem.bundle.push(pItem.color);
                             this.player.heldItem = null;
+                            // Crate vessel updated with new bundle
+                            this.sendStationUpdate({ station_name: s.name, held_item: sItem.toServerFormat(), update_type: "item" });
                         } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
-                            // Finished dream orb — set as dish
                             sItem.dishName = pItem.name;
                             sItem.dishColor = pItem.color;
                             this.player.heldItem = null;
+                            this.sendStationUpdate({ station_name: s.name, held_item: sItem.toServerFormat(), update_type: "item" });
                         }
-                        // Unprocessed orbs: do nothing — interaction is silently ignored
                     }
                 } else if (!this.player.heldItem && s.heldItem) {
+                    // Pick up from crate
                     this.player.heldItem = s.heldItem;
                     s.heldItem = null;
+                    this.sendStationUpdate({ station_name: s.name, held_item: null, update_type: "item" });
                 } else if (this.player.heldItem && !s.heldItem) {
+                    // Put down into crate
                     s.heldItem = this.player.heldItem;
                     this.player.heldItem = null;
+                    this.sendStationUpdate({ station_name: s.name, held_item: s.heldItem.toServerFormat(), update_type: "item" });
                 }
 
             } else if (s.name.includes("Dispenser") && !this.player.heldItem) {
+                // Dispensers are infinite — no station update needed
                 const color = STATION_COLORS[s.name];
                 this.player.heldItem = new Item(s.name.split(' ')[0], color);
 
             } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
+                // Optimistic: decrement locally immediately
                 s.vesselCount--;
                 this.player.heldItem = new Item("Vessel", WHITE, false, true);
-                // Protect vesselCount from server overwrite for 6 seconds (longer than the 5s respawn)
-                // so the server's scheduled respawn is what updates it, not a stale sync
-                this.vesselReturnProtectedUntil = Date.now() + 6000;
-            
+                // Tell server a vessel was taken
+                this.sendStationUpdate({ update_type: "vessel_take" });
+
             } else if (s.name === "Dream Visualizer") {
                 if (s.isCooking) return;
 
+                const isDreamCook = this.player.heldItem?.isVessel &&
+                    this.player.heldItem.bundle.length > 0 &&
+                    !s.isCooking;
+
                 if (s.heldItem) {
-                    // Finished orb ready — pick it up
+                    // Pick up finished orb
                     if (!this.player.heldItem) {
                         this.player.heldItem = s.heldItem;
                         s.heldItem = null;
-                        this.modifiedStations.delete("Dream Visualizer");
+                        // Tell server the orb was picked up
+                        this.sendStationUpdate({ update_type: "dream_pickup" });
                     } else if (this.player.heldItem.isVessel &&
                             !this.player.heldItem.dishName &&
                             !this.player.heldItem.bundle.length) {
                         this.player.heldItem.dishName = s.heldItem.name;
                         this.player.heldItem.dishColor = s.heldItem.color;
                         s.heldItem = null;
-                        this.modifiedStations.delete("Dream Visualizer");
+                        this.sendStationUpdate({ update_type: "dream_pickup" });
                     }
                 } else if (isDreamCook) {
-                    // Load orbs in, keep empty vessel in hand
+                    // Start cooking — send bundle to server
+                    const bundle = [...this.player.heldItem.bundle];
                     const dummy = new Item("Bundle", WHITE, true);
-                    dummy.bundle = [...this.player.heldItem.bundle];
+                    dummy.bundle = bundle;
                     s.heldItem = dummy;
                     s.isCooking = true;
                     s.progress = 0;
                     this.player.heldItem.bundle = [];
                     this.player.heldItem.dishName = null;
                     this.player.heldItem.dishColor = null;
-
-                    // Permanently protect until orb is picked up
-                    this.modifiedStations.add("Dream Visualizer");
-                    if (this.modifiedStationsTimeout) clearTimeout(this.modifiedStationsTimeout);
-                    this.modifiedStationsTimeout = null;
+                    this.sendStationUpdate({ update_type: "dream_cook_start", bundle });
                 }
 
             } else if (s.name === "Gateway" && this.player.heldItem) {
@@ -817,7 +834,6 @@
                 if (vesselWithDish || rawDreamOrb) {
                     const dishName = vesselWithDish ? this.player.heldItem.dishName : this.player.heldItem.name;
 
-                    // Clear held item IMMEDIATELY so movement is never blocked
                     this.player.heldItem = null;
                     this.lastDeliveryTime = Date.now();
 
@@ -833,14 +849,12 @@
                     }
 
                     if (localDelivered) {
-                        this.greenFlash = 0.1; // Shorter flash - 100ms instead of 350ms
+                        this.greenFlash = 0.1;
                     } else {
                         this.score = Math.max(0, this.score - 15);
                         this.redFlash = 0.2;
                     }
 
-                    // Send delivery to server without blocking (fire-and-forget)
-                    // The broadcast will sync all players automatically
                     if (this.network.connected && this.network.ws) {
                         try {
                             this.network.ws.send(JSON.stringify({
@@ -906,13 +920,11 @@
                     drawRect(this.ctx, tx + 8, 62, 150 * pct, 6, barColor, 3);
                 }
 
-                // Red flash — wrong delivery or order expired
                 if (this.redFlash > 0) {
                     this.ctx.fillStyle = `rgba(255, 0, 0, ${Math.min(1, this.redFlash / 0.2) * 0.5})`;
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
                 }
 
-                // Green/teal flash — correct delivery
                 if (this.greenFlash > 0) {
                     this.ctx.fillStyle = `rgba(0, 255, 150, ${Math.min(1, this.greenFlash / 0.35) * 0.4})`;
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
@@ -940,24 +952,6 @@
             return true;
         }
 
-        itemsEqual(item1, item2) {
-            if (item1 === null && item2 === null) return true;
-            if (item1 === null || item2 === null) return false;
-            return item1.name === item2.name &&
-                item1.isProcessed === item2.isProcessed &&
-                item1.isVessel === item2.isVessel &&
-                this.arraysEqual(item1.bundle || [], item2.bundle || []);
-        }
-
-        deserializeItem(itemData) {
-            if (!itemData) return null;
-            const item = new Item(itemData.name, itemData.color, itemData.is_processed, itemData.is_vessel);
-            item.bundle = itemData.bundle || [];
-            item.dishName = itemData.dish_name;
-            item.dishColor = itemData.dish_color;
-            return item;
-        }
-
         LEVEL_STAR_THRESHOLDS = LEVEL_STAR_THRESHOLDS;
     }
 
@@ -971,18 +965,6 @@
             await game.network.connect();
             console.log('Connected to server');
 
-            game.network.onVesselRespawn = () => {
-                if (game.gameState !== "PLAYING") return;
-                if (game.countTotalVessels() < 3) {
-                    for (let s of game.stations) {
-                        if (s.name === "Vessel Return") {
-                            s.vesselCount++;
-                            break;
-                        }
-                    }
-                }
-            };
-
             game.network.onLevelLoad = (level) => {
                 game.loadLevel(level);
             };
@@ -991,15 +973,13 @@
                 if (game.gameState !== "PLAYING") return;
                 if (!data.players || !data.game_state) return;
 
+                // Sync other players' positions and held items
                 for (let p of data.players) {
                     if (p.id !== game.myId && game.playersDict[p.id]) {
                         game.playersDict[p.id].x = p.x;
                         game.playersDict[p.id].y = p.y;
                         if (p.heldItem) {
-                            const item = new Item(p.heldItem.name, p.heldItem.color, p.heldItem.isProcessed, p.heldItem.isVessel);
-                            item.bundle = p.heldItem.bundle || [];
-                            item.dishName = p.heldItem.dishName;
-                            game.playersDict[p.id].heldItem = item;
+                            game.playersDict[p.id].heldItem = deserializeItem(p.heldItem);
                         } else {
                             game.playersDict[p.id].heldItem = null;
                         }
@@ -1007,13 +987,49 @@
                 }
 
                 const serverState = data.game_state;
+
+                // Sync timer
                 if (serverState.game_timer > 0 && Math.abs(serverState.game_timer - game.gameTimer) < 5) {
                     game.gameTimer = serverState.game_timer;
                 }
+
+                // Sync score and orders (with delivery grace period)
                 if (Date.now() - game.lastDeliveryTime > 500) {
                     game.score = serverState.score;
                     game.orders = serverState.orders;
                 }
+
+                // === Sync station state from server (the key multiplayer fix) ===
+                if (serverState.stations) {
+                    for (let station of game.stations) {
+                        const serverStation = serverState.stations[station.name];
+                        if (!serverStation) continue;
+
+                        // Dream Visualizer: only sync item state, not cooking animation
+                        // (cooking animation is driven locally for smooth 60fps)
+                        if (station.name === "Dream Visualizer") {
+                            // If server says not cooking but we think we are, we started it — keep local
+                            // If server says cooking and we don't know about it, sync it
+                            if (!station.isCooking && serverStation.is_cooking) {
+                                station.isCooking = true;
+                                station.progress = 0;
+                                station.heldItem = deserializeItem(serverStation.held_item);
+                            }
+                            // If server has a finished result (not cooking, has item), sync it
+                            if (!serverStation.is_cooking && serverStation.held_item && !station.isCooking) {
+                                station.heldItem = deserializeItem(serverStation.held_item);
+                            }
+                            // If server says empty and we're not cooking, sync empty
+                            if (!serverStation.held_item && !serverStation.is_cooking && !station.isCooking) {
+                                station.heldItem = null;
+                            }
+                        } else {
+                            // All other stations: fully authoritative from server
+                            station.applyServerState(serverStation);
+                        }
+                    }
+                }
+
                 if (serverState.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
