@@ -743,14 +743,17 @@
                             s.heldItem = null;
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
-                        if (!pItem.isProcessed || (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush")) {
+                        if (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush") {
+                            // Processed orb (not a finished dish) — add to bundle
                             sItem.bundle.push(pItem.color);
                             this.player.heldItem = null;
                         } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
+                            // Finished dream orb — set as dish
                             sItem.dishName = pItem.name;
                             sItem.dishColor = pItem.color;
                             this.player.heldItem = null;
                         }
+                        // Unprocessed orbs: do nothing — interaction is silently ignored
                     }
                 } else if (!this.player.heldItem && s.heldItem) {
                     this.player.heldItem = s.heldItem;
