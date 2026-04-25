@@ -4,7 +4,7 @@ class Network {
         this.serverUrl = isDev ? 'ws://localhost:5555' : 'wss://dreamweaver-271s.onrender.com';
         this.ws = null;
         this.connected = false;
-        this._pendingRequests = new Map(); // requestId -> resolve fn
+        this._pendingRequests = new Map();
         this._requestId = 0;
     }
 
@@ -33,22 +33,28 @@ class Network {
                     try {
                         const data = JSON.parse(event.data);
 
-                        // Server-pushed events (no requestId)
-                        if (data.status === 'vessel_respawn') {
-                            if (this.onVesselRespawn) this.onVesselRespawn();
-                            return;
-                        }
                         if (data.status === 'level_load') {
                             if (this.onLevelLoad) this.onLevelLoad(data.level);
                             return;
                         }
-                        // Broadcast game state (no requestId, has players/game_state)
+
+                        // Rejection from a station update attempt
+                        if (data.status === 'rejected') {
+                            if (this._rid && this._pendingRequests.has(data._rid)) {
+                                this._pendingRequests.get(data._rid)(data);
+                                this._pendingRequests.delete(data._rid);
+                            }
+                            if (this.onRejection) this.onRejection(data);
+                            return;
+                        }
+
+                        // Broadcast game state (no _rid)
                         if (!data.hasOwnProperty('_rid')) {
                             if (this.onBroadcast) this.onBroadcast(data);
                             return;
                         }
 
-                        // Response to a specific request
+                        // Response to a specific awaited request
                         const rid = data._rid;
                         if (this._pendingRequests.has(rid)) {
                             this._pendingRequests.get(rid)(data);
@@ -64,14 +70,12 @@ class Network {
         });
     }
 
-    // For requests that need a response (CREATE, JOIN, GET_LOBBY, etc.)
     send(data) {
         return new Promise((resolve) => {
             if (!this.connected) { resolve(null); return; }
             const rid = ++this._requestId;
             this._pendingRequests.set(rid, resolve);
             this.ws.send(JSON.stringify({ ...data, _rid: rid }));
-            // Timeout after 5s to avoid leaking pending requests
             setTimeout(() => {
                 if (this._pendingRequests.has(rid)) {
                     this._pendingRequests.delete(rid);
@@ -81,9 +85,8 @@ class Network {
         });
     }
 
-    // Fire-and-forget — for SYNC and DELIVER where we don't need to await
     sendRaw(data) {
         if (!this.connected || !this.ws) return;
-        try { this.ws.send(JSON.stringify(data)); } catch (e) {}
+        try { this.ws.send(JSON.stringify(data)); } catch(e) {}
     }
 }

@@ -1,9 +1,7 @@
 // ========== CONSTANTS ==========
     const WIDTH = 900, HEIGHT = 700;
     const MISSED_ORDER_PENALTY = 20;
-    const FPS = 60;
 
-    // Colors
     const BLACK = [15, 10, 25];
     const WHITE = [240, 240, 255];
     const GOLD = [255, 215, 0];
@@ -32,31 +30,22 @@
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
 
     // ========== UTILITY FUNCTIONS ==========
-    function rgbToString(rgb) {
-        return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-    }
+    function rgbToString(rgb) { return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`; }
 
     function drawRect(ctx, x, y, w, h, color, borderRadius = 0) {
         ctx.fillStyle = rgbToString(color);
-        if (borderRadius > 0) {
-            roundRect(ctx, x, y, w, h, borderRadius);
-            ctx.fill();
-        } else {
-            ctx.fillRect(x, y, w, h);
-        }
+        if (borderRadius > 0) { roundRect(ctx, x, y, w, h, borderRadius); ctx.fill(); }
+        else ctx.fillRect(x, y, w, h);
     }
 
     function drawCircle(ctx, x, y, r, color) {
         ctx.fillStyle = rgbToString(color);
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     }
 
     function roundRect(ctx, x, y, w, h, r) {
         ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + w - r, y);
+        ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
         ctx.quadraticCurveTo(x + w, y, x + w, y + r);
         ctx.lineTo(x + w, y + h - r);
         ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
@@ -67,7 +56,7 @@
         ctx.closePath();
     }
 
-    // ========== GAME CLASSES ==========
+    // ========== ITEM ==========
     class Item {
         constructor(name, color, isProcessed = false, isVessel = false) {
             this.name = name;
@@ -77,82 +66,68 @@
             this.bundle = [];
             this.dishName = null;
             this.dishColor = null;
-            this.rotationAngle = 0;
         }
 
         toServerFormat() {
             return {
-                name: this.name,
-                color: this.color,
-                is_processed: this.isProcessed,
-                is_vessel: this.isVessel,
-                bundle: this.bundle,
-                dish_name: this.dishName,
-                dish_color: this.dishColor
+                name: this.name, color: this.color,
+                is_processed: this.isProcessed, is_vessel: this.isVessel,
+                bundle: this.bundle, dish_name: this.dishName, dish_color: this.dishColor
             };
         }
 
-        draw(ctx, x, y, scale = 1.0, onPlate = false) {
+        draw(ctx, x, y, scale = 1.0) {
             const pulse = Math.sin(Date.now() * 0.01) * 2;
             const r = (12 + pulse) * scale;
 
             if (this.isVessel) {
                 ctx.strokeStyle = rgbToString([120, 100, 200]);
                 ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.ellipse(x, y, 24, 14, 0, 0, Math.PI * 2);
-                ctx.stroke();
-
+                ctx.beginPath(); ctx.ellipse(x, y, 24, 14, 0, 0, Math.PI * 2); ctx.stroke();
                 if (this.dishName) {
-                    const dishRadius = Math.max(3, r * 0.6);
-                    drawCircle(ctx, x, y - 8, dishRadius, this.dishColor);
-                    drawCircle(ctx, x, y - 8, Math.max(1, dishRadius - 3), WHITE);
+                    const dr = Math.max(3, r * 0.6);
+                    drawCircle(ctx, x, y - 8, dr, this.dishColor);
+                    drawCircle(ctx, x, y - 8, Math.max(1, dr - 3), WHITE);
                 } else if (this.bundle.length > 0) {
                     for (let i = 0; i < this.bundle.length; i++) {
-                        const angleStep = (2 * Math.PI) / this.bundle.length;
-                        const speed = Date.now() * 0.005;
-                        const itemRadius = this.bundle.length > 2 ? 5 : 7;
-                        const orbitRadius = this.bundle.length > 2 ? 10 : 14;
-                        const ox = Math.cos(i * angleStep + speed) * orbitRadius;
-                        const oy = Math.sin(i * angleStep + speed) * orbitRadius;
-                        drawCircle(ctx, x + ox, y - 8 + oy, itemRadius, this.bundle[i]);
-                        drawCircle(ctx, x + ox, y - 8 + oy, Math.max(1, itemRadius - 3), WHITE);
+                        const a = (2 * Math.PI / this.bundle.length) * i + Date.now() * 0.005;
+                        const ir = this.bundle.length > 2 ? 5 : 7;
+                        const or = this.bundle.length > 2 ? 10 : 14;
+                        drawCircle(ctx, x + Math.cos(a)*or, y - 8 + Math.sin(a)*or, ir, this.bundle[i]);
+                        drawCircle(ctx, x + Math.cos(a)*or, y - 8 + Math.sin(a)*or, Math.max(1, ir-3), WHITE);
                     }
                 }
             } else {
-                ctx.strokeStyle = rgbToString(this.color);
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-                ctx.stroke();
-
+                ctx.strokeStyle = rgbToString(this.color); ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI * 2); ctx.stroke();
                 drawCircle(ctx, x, y, r, this.color);
-
-                if (!this.isProcessed) {
-                    drawCircle(ctx, x, y, r / 2, WHITE);
-                }
-
-                if (this.bundle.length > 0) {
-                    for (let i = 0; i < this.bundle.length; i++) {
-                        const angleStep = (2 * Math.PI) / this.bundle.length;
-                        const speed = Date.now() * 0.005;
-                        const ox = Math.cos(i * angleStep + speed) * 25;
-                        const oy = Math.sin(i * angleStep + speed) * 25;
-                        drawCircle(ctx, x + ox, y + oy, 8, this.bundle[i]);
-                        drawCircle(ctx, x + ox, y + oy, 4, WHITE);
-                    }
+                if (!this.isProcessed) drawCircle(ctx, x, y, r / 2, WHITE);
+                for (let i = 0; i < this.bundle.length; i++) {
+                    const a = (2 * Math.PI / this.bundle.length) * i + Date.now() * 0.005;
+                    drawCircle(ctx, x + Math.cos(a)*25, y + Math.sin(a)*25, 8, this.bundle[i]);
+                    drawCircle(ctx, x + Math.cos(a)*25, y + Math.sin(a)*25, 4, WHITE);
                 }
             }
         }
     }
 
+    function deserializeItem(d) {
+        if (!d) return null;
+        const item = new Item(
+            d.name, d.color,
+            d.is_processed ?? d.isProcessed ?? false,
+            d.is_vessel ?? d.isVessel ?? false
+        );
+        item.bundle = d.bundle || [];
+        item.dishName = d.dish_name ?? d.dishName ?? null;
+        item.dishColor = d.dish_color ?? d.dishColor ?? null;
+        return item;
+    }
+
+    // ========== STATION ==========
     class Station {
         constructor(name, x, y, w, h) {
-            this.name = name;
-            this.x = x;
-            this.y = y;
-            this.w = w;
-            this.h = h;
+            this.name = name; this.x = x; this.y = y; this.w = w; this.h = h;
             this.color = STATION_COLORS[name.includes("Crate") ? "Crate" : name];
             this.progress = 0;
             this.isHighlighted = false;
@@ -161,179 +136,111 @@
             this.vesselCount = 0;
         }
 
-        /** Apply server state to this station (called on every broadcast). */
-        applyServerState(serverStation) {
-            if (serverStation.held_item !== undefined) {
-                this.heldItem = deserializeItem(serverStation.held_item);
-            }
-            if (serverStation.vessel_count !== undefined) {
-                this.vesselCount = serverStation.vessel_count;
-            }
-            // Don't overwrite is_cooking/progress for Dream Visualizer — those are
-            // driven locally for smooth animation, only cooking START/DONE go to server.
-            if (this.name !== "Dream Visualizer") {
-                if (serverStation.is_cooking !== undefined) this.isCooking = serverStation.is_cooking;
-            }
+        applyServerState(s) {
+            this.heldItem = deserializeItem(s.held_item);
+            if (s.vessel_count !== undefined) this.vesselCount = s.vessel_count;
+            if (s.is_cooking !== undefined) this.isCooking = s.is_cooking;
+            if (s.progress !== undefined) this.progress = s.progress;
         }
 
         draw(ctx, frame) {
             const borderColor = this.isHighlighted ? TEAL : WHITE;
-
-            drawRect(ctx, this.x + 5, this.y + 5, this.w, this.h, [25, 20, 45], 12);
+            drawRect(ctx, this.x+5, this.y+5, this.w, this.h, [25,20,45], 12);
             drawRect(ctx, this.x, this.y, this.w, this.h, this.color, 10);
-
             if (this.isHighlighted) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-                roundRect(ctx, this.x, this.y, this.w, this.h, 10);
-                ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.1)';
+                roundRect(ctx, this.x, this.y, this.w, this.h, 10); ctx.fill();
             }
-
-            ctx.strokeStyle = rgbToString(borderColor);
-            ctx.lineWidth = 2;
-            roundRect(ctx, this.x, this.y, this.w, this.h, 10);
-            ctx.stroke();
+            ctx.strokeStyle = rgbToString(borderColor); ctx.lineWidth = 2;
+            roundRect(ctx, this.x, this.y, this.w, this.h, 10); ctx.stroke();
 
             if (!this.name.includes("Crate")) {
                 ctx.save();
                 ctx.font = 'bold 12px Arial';
-                ctx.fillStyle = rgbToString(this.name === "Void Siphon" || this.name === "Vessel Return" ? WHITE : [20, 20, 20]);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-
+                ctx.fillStyle = rgbToString(["Void Siphon","Vessel Return","Logic Filter"].includes(this.name) ? WHITE : [20,20,20]);
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 const words = this.name.split(' ');
-                const lineHeight = 14;
-                const totalHeight = words.length * lineHeight;
-                const startY = this.y + this.h / 2 - totalHeight / 2;
-
-                for (let i = 0; i < words.length; i++) {
-                    ctx.fillText(words[i], this.x + this.w / 2, startY + i * lineHeight, this.w - 10);
-                }
+                const lh = 14, startY = this.y + this.h/2 - words.length*lh/2;
+                words.forEach((w, i) => ctx.fillText(w, this.x+this.w/2, startY+i*lh, this.w-10));
                 ctx.restore();
             }
 
             if (this.name === "Vessel Return") {
                 for (let i = 0; i < this.vesselCount; i++) {
-                    ctx.strokeStyle = rgbToString(WHITE);
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.ellipse(this.x + this.w / 2, this.y + this.h / 2 + 20 - i * 8, 22, 12, 0, 0, Math.PI * 2);
-                    ctx.stroke();
-
-                    ctx.strokeStyle = rgbToString([200, 200, 200]);
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.ellipse(this.x + this.w / 2, this.y + this.h / 2 + 20 - i * 8, 20, 10, 0, 0, Math.PI * 2);
-                    ctx.stroke();
+                    ctx.strokeStyle = rgbToString(WHITE); ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.ellipse(this.x+this.w/2, this.y+this.h/2+20-i*8, 22, 12, 0, 0, Math.PI*2); ctx.stroke();
+                    ctx.strokeStyle = rgbToString([200,200,200]); ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.ellipse(this.x+this.w/2, this.y+this.h/2+20-i*8, 20, 10, 0, 0, Math.PI*2); ctx.stroke();
                 }
             }
 
             if (this.name === "Dream Visualizer" && this.heldItem && !this.isCooking) {
-                const bounce = Math.sin(frame * 0.1) * 8;
-                this.heldItem.draw(ctx, this.x + this.w / 2, this.y - 25 + bounce);
+                this.heldItem.draw(ctx, this.x+this.w/2, this.y-25 + Math.sin(frame*0.1)*8);
             } else if (this.heldItem) {
-                const scale = this.heldItem.isVessel ? 1.5 : 1.0;
-                this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2, scale);
+                this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2, this.heldItem.isVessel ? 1.5 : 1.0);
             }
 
             if (this.progress > 0 && this.progress <= 1.0) {
                 if (this.name === "Logic Filter" || (this.name === "Dream Visualizer" && this.isCooking)) {
-                    drawRect(ctx, this.x, this.y + this.h + 8, this.w, 8, [50, 50, 50], 4);
-                    drawRect(ctx, this.x, this.y + this.h + 8, this.w * this.progress, 8, TEAL, 4);
+                    drawRect(ctx, this.x, this.y+this.h+8, this.w, 8, [50,50,50], 4);
+                    drawRect(ctx, this.x, this.y+this.h+8, this.w*this.progress, 8, TEAL, 4);
                 }
             }
-        }
 
-        contains(x, y) {
-            return x >= this.x && x <= this.x + this.w && y >= this.y && y <= this.y + this.h;
+            // "In use" indicator for locked stations
+            if (this.isCooking && (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
+                ctx.save();
+                ctx.font = 'bold 10px Arial';
+                ctx.fillStyle = 'rgba(255,200,0,0.9)';
+                ctx.textAlign = 'center';
+                ctx.fillText('IN USE', this.x + this.w/2, this.y - 8);
+                ctx.restore();
+            }
         }
     }
 
+    // ========== PLAYER ==========
     class Player {
         constructor(x, y, color) {
-            this.x = x;
-            this.y = y;
-            this.w = 40;
-            this.h = 40;
-            this.baseSpeed = 6;
-            this.dashSpeed = 12;
-            this.dashEnergy = 100;
-            this.isDashing = false;
-            this.color = color;
-            this.heldItem = null;
+            this.x = x; this.y = y; this.w = 40; this.h = 40;
+            this.baseSpeed = 6; this.dashSpeed = 12;
+            this.dashEnergy = 100; this.isDashing = false;
+            this.color = color; this.heldItem = null;
         }
 
         move(dx, dy, stations, keys) {
-            const isShiftPressed = keys['Shift'];
-
-            if (isShiftPressed && this.dashEnergy > 0 && (dx !== 0 || dy !== 0)) {
-                this.isDashing = true;
-                this.dashEnergy -= 1.8;
-            } else {
-                this.isDashing = false;
-                this.dashEnergy = Math.min(100, this.dashEnergy + 0.6);
-            }
-
+            const dashing = keys['Shift'] && this.dashEnergy > 0 && (dx||dy);
+            if (dashing) { this.isDashing = true; this.dashEnergy -= 1.8; }
+            else { this.isDashing = false; this.dashEnergy = Math.min(100, this.dashEnergy + 0.6); }
             const speed = this.isDashing ? this.dashSpeed : this.baseSpeed;
 
             this.x += dx * speed;
             for (let s of stations) {
-                if (this.collidesWithStation(s)) {
-                    if (dx > 0) this.x = s.x - this.w;
-                    else this.x = s.x + s.w;
-                }
+                if (this.collidesWithStation(s)) this.x = dx > 0 ? s.x - this.w : s.x + s.w;
             }
-
             this.y += dy * speed;
             for (let s of stations) {
-                if (this.collidesWithStation(s)) {
-                    if (dy > 0) this.y = s.y - this.h;
-                    else this.y = s.y + s.h;
-                }
+                if (this.collidesWithStation(s)) this.y = dy > 0 ? s.y - this.h : s.y + s.h;
             }
-
-            this.x = Math.max(0, Math.min(WIDTH - this.w, this.x));
-            this.y = Math.max(95, Math.min(HEIGHT - 155, this.y));
+            this.x = Math.max(0, Math.min(WIDTH-this.w, this.x));
+            this.y = Math.max(95, Math.min(HEIGHT-155, this.y));
         }
 
-        collidesWithStation(station) {
-            return this.x < station.x + station.w &&
-                this.x + this.w > station.x &&
-                this.y < station.y + station.h &&
-                this.y + this.h > station.y;
+        collidesWithStation(s) {
+            return this.x < s.x+s.w && this.x+this.w > s.x && this.y < s.y+s.h && this.y+this.h > s.y;
         }
 
         draw(ctx) {
-            const color = this.isDashing ? WHITE : this.color;
-            drawRect(ctx, this.x, this.y, this.w, this.h, color, 8);
-
+            drawRect(ctx, this.x, this.y, this.w, this.h, this.isDashing ? WHITE : this.color, 8);
             if (this.dashEnergy < 100) {
-                drawRect(ctx, this.x, this.y - 12, 40, 5, [50, 50, 50]);
-                drawRect(ctx, this.x, this.y - 12, 40 * (this.dashEnergy / 100), 5, SKY_BLUE);
+                drawRect(ctx, this.x, this.y-12, 40, 5, [50,50,50]);
+                drawRect(ctx, this.x, this.y-12, 40*(this.dashEnergy/100), 5, SKY_BLUE);
             }
-
-            if (this.heldItem) {
-                this.heldItem.draw(ctx, this.x + this.w / 2, this.y + this.h / 2);
-            }
+            if (this.heldItem) this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2);
         }
     }
 
-    // ========== HELPERS ==========
-
-    function deserializeItem(itemData) {
-        if (!itemData) return null;
-        const item = new Item(
-            itemData.name,
-            itemData.color,
-            itemData.is_processed ?? itemData.isProcessed ?? false,
-            itemData.is_vessel ?? itemData.isVessel ?? false
-        );
-        item.bundle = itemData.bundle || [];
-        item.dishName = itemData.dish_name ?? itemData.dishName ?? null;
-        item.dishColor = itemData.dish_color ?? itemData.dishColor ?? null;
-        return item;
-    }
-
-    // ========== GAME MANAGER ==========
+    // ========== GAME ==========
     class Game {
         constructor() {
             this.canvas = document.getElementById('gameCanvas');
@@ -365,13 +272,11 @@
 
             this.lastSyncTime = 0;
             this.syncInterval = 16;
-
-            this.lastInteractionTime = 0;
             this.lastDeliveryTime = 0;
 
-            // Logic Filter: fully local state to avoid server-sync bugs
-            this.logicFilterProgress = 0;
-            this.logicFilterProcessing = false;
+            // Logic Filter state — tracks whether THIS player started it
+            this.myLogicFilterActive = false;   // true = I sent logic_filter_start, waiting for server
+            this.myLogicFilterOrb = null;        // the orb I put in (to return if cancelled)
 
             this.setupEventListeners();
         }
@@ -379,17 +284,13 @@
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
                 this.keys[e.key] = true;
-                if (e.key === ' ' || ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                if (e.key === ' ' || ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))
                     e.preventDefault();
-                }
             });
-            document.addEventListener('keyup', (e) => {
-                this.keys[e.key] = false;
-            });
+            document.addEventListener('keyup', (e) => { this.keys[e.key] = false; });
             document.addEventListener('mousemove', (e) => {
-                const rect = this.canvas.getBoundingClientRect();
-                this.mousePos.x = e.clientX - rect.left;
-                this.mousePos.y = e.clientY - rect.top;
+                const r = this.canvas.getBoundingClientRect();
+                this.mousePos = { x: e.clientX - r.left, y: e.clientY - r.top };
             });
             document.addEventListener('click', () => this.mouseClicked = true);
 
@@ -398,17 +299,12 @@
                 this.hostGame();
             });
             document.getElementById('joinBtn').addEventListener('click', () => {
-                const roomCodeInput = document.getElementById('roomCode');
-                if (roomCodeInput.style.display === 'none') {
-                    roomCodeInput.style.display = 'block';
-                    roomCodeInput.focus();
-                } else {
-                    this.joinGame();
-                }
+                const el = document.getElementById('roomCode');
+                if (el.style.display === 'none') { el.style.display = 'block'; el.focus(); }
+                else this.joinGame();
             });
             document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
             document.getElementById('nextLevelBtn').addEventListener('click', () => this.nextLevel());
-
             document.getElementById('playerName').addEventListener('input', (e) => {
                 this.playerName = e.target.value.substring(0, 12);
             });
@@ -421,31 +317,23 @@
             if (!this.playerName.trim()) return;
             try {
                 const res = await this.network.send({ action: "CREATE", name: this.playerName });
-                if (res && res.status === "success") {
-                    this.roomCode = res.code;
-                    this.isHost = true;
-                    this.myId = res.player_id;
-                    this.gameState = "LOBBY";
+                if (res?.status === "success") {
+                    this.roomCode = res.code; this.isHost = true;
+                    this.myId = res.player_id; this.gameState = "LOBBY";
                     this.showLobbyUI();
                 }
-            } catch (e) {
-                console.error("Host error:", e);
-            }
+            } catch(e) { console.error("Host error:", e); }
         }
 
         async joinGame() {
             if (!this.playerName.trim() || this.roomCode.length !== 4) return;
             try {
                 const res = await this.network.send({ action: "JOIN", code: this.roomCode, name: this.playerName });
-                if (res && res.status === "success") {
-                    this.isHost = false;
-                    this.myId = res.player_id;
-                    this.gameState = "LOBBY";
-                    this.showLobbyUI();
+                if (res?.status === "success") {
+                    this.isHost = false; this.myId = res.player_id;
+                    this.gameState = "LOBBY"; this.showLobbyUI();
                 }
-            } catch (e) {
-                console.error("Join error:", e);
-            }
+            } catch(e) { console.error("Join error:", e); }
         }
 
         async startGame() {
@@ -458,12 +346,9 @@
         async nextLevel() {
             if (!this.isHost) return;
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
-            const nextLevelNum = (stars >= 1 && this.currentLevel < 2) ? 2 : this.currentLevel;
-            if (this.network.connected) {
-                await this.network.send({ action: "LOAD_LEVEL", level: nextLevelNum });
-            } else {
-                this.loadLevel(nextLevelNum);
-            }
+            const next = (stars >= 1 && this.currentLevel < 2) ? 2 : this.currentLevel;
+            if (this.network.connected) await this.network.send({ action: "LOAD_LEVEL", level: next });
+            else this.loadLevel(next);
         }
 
         showLobbyUI() {
@@ -475,34 +360,25 @@
         }
 
         async updateLobbyDisplay() {
-            if (this.network.connected) {
-                const res = await this.network.send({ action: "GET_LOBBY" });
-                if (res && res.status === "success") {
-                    this.connectedPlayers = res.players;
-                    document.getElementById('playerCountDisplay').textContent = `Players (${this.connectedPlayers.length}/4):`;
-
-                    const playersList = document.getElementById('playersList');
-                    playersList.innerHTML = '';
-                    for (let p of this.connectedPlayers) {
-                        const item = document.createElement('div');
-                        item.className = 'player-item';
-                        const dot = document.createElement('div');
-                        dot.className = 'player-color-dot';
-                        const [r, g, b] = p.color;
-                        dot.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
-                        item.appendChild(dot);
-                        item.appendChild(document.createTextNode(p.name));
-                        playersList.appendChild(item);
-                    }
-
-                    if (this.isHost) {
-                        document.getElementById('startGameBtn').style.display = this.connectedPlayers.length > 0 ? 'block' : 'none';
-                    }
-
-                    if (!this.isHost && res.game_started) {
-                        clearInterval(this.lobbyUpdateInterval);
-                        this.loadLevel(1);
-                    }
+            if (!this.network.connected) return;
+            const res = await this.network.send({ action: "GET_LOBBY" });
+            if (res?.status === "success") {
+                this.connectedPlayers = res.players;
+                document.getElementById('playerCountDisplay').textContent = `Players (${res.players.length}/4):`;
+                const list = document.getElementById('playersList');
+                list.innerHTML = '';
+                for (let p of res.players) {
+                    const item = document.createElement('div'); item.className = 'player-item';
+                    const dot = document.createElement('div'); dot.className = 'player-color-dot';
+                    dot.style.backgroundColor = `rgb(${p.color[0]},${p.color[1]},${p.color[2]})`;
+                    item.appendChild(dot); item.appendChild(document.createTextNode(p.name));
+                    list.appendChild(item);
+                }
+                if (this.isHost)
+                    document.getElementById('startGameBtn').style.display = res.players.length > 0 ? 'block' : 'none';
+                if (!this.isHost && res.game_started) {
+                    clearInterval(this.lobbyUpdateInterval);
+                    this.loadLevel(1);
                 }
             }
         }
@@ -517,25 +393,16 @@
             this.gameState = "PLAYING";
 
             this.playersDict = {};
-            for (let p of this.connectedPlayers) {
-                this.playersDict[p.id] = new Player(WIDTH / 2, HEIGHT / 2, p.color);
-            }
-            if (!this.playersDict[this.myId]) {
-                this.playersDict[this.myId] = new Player(WIDTH / 2, HEIGHT / 2, TEAL);
-            }
+            for (let p of this.connectedPlayers)
+                this.playersDict[p.id] = new Player(WIDTH/2, HEIGHT/2, p.color);
+            if (!this.playersDict[this.myId])
+                this.playersDict[this.myId] = new Player(WIDTH/2, HEIGHT/2, TEAL);
             this.player = this.playersDict[this.myId];
 
-            this.orders = [];
-            this.score = 0;
-            this.frame = 0;
-            this.spawnTick = 0;
-            this.redFlash = 0;
-            this.greenFlash = 0;
-            this.lastDeliveryTime = 0;
-            this.logicFilterProgress = 0;
-            this.logicFilterProcessing = false;
+            this.orders = []; this.score = 0; this.frame = 0; this.spawnTick = 0;
+            this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
+            this.myLogicFilterActive = false; this.myLogicFilterOrb = null;
 
-            this.stations = [];
             if (levelNum === 1) {
                 this.stations = [
                     new Station("Happy Dispenser", 60, 110, 90, 90),
@@ -548,7 +415,7 @@
                     new Station("Void Siphon", 780, 510, 80, 90),
                     new Station("Crate 1", 380, 280, 60, 60),
                     new Station("Crate 2", 450, 280, 60, 60),
-                    new Station("Crate 3", 520, 280, 60, 60)
+                    new Station("Crate 3", 520, 280, 60, 60),
                 ];
             } else {
                 this.stations = [
@@ -562,16 +429,12 @@
                     new Station("Void Siphon", 60, 510, 80, 90),
                     new Station("Crate 1", 380, 320, 60, 60),
                     new Station("Crate 2", 450, 320, 60, 60),
-                    new Station("Crate 3", 520, 320, 60, 60)
+                    new Station("Crate 3", 520, 320, 60, 60),
                 ];
             }
 
-            // NOTE: Vessels are now placed by the server at game start.
-            // The first broadcast will populate station state. No local seeding needed.
-
-            for (let i = 0; i < 3; i++) {
-                this.addOrder();
-            }
+            // Seed initial orders locally (server will sync)
+            for (let i = 0; i < 3; i++) this.addOrder();
         }
 
         addOrder() {
@@ -580,150 +443,96 @@
             this.orders.push({ name, time: 60, max: 60, recipe: RECIPES[name] });
         }
 
-        /** Send a STATION_UPDATE to the server. Fire-and-forget. */
         sendStationUpdate(payload) {
             if (!this.network.connected || !this.network.ws) return;
-            try {
-                this.network.ws.send(JSON.stringify({ action: "STATION_UPDATE", ...payload }));
-            } catch (e) {
-                console.error("STATION_UPDATE send failed:", e);
-            }
+            try { this.network.ws.send(JSON.stringify({ action: "STATION_UPDATE", ...payload })); }
+            catch(e) { console.error("STATION_UPDATE failed:", e); }
+        }
+
+        getStation(name) { return this.stations.find(s => s.name === name); }
+
+        isStationLocked(stationName, locks) {
+            // locks is the station_locks dict from server state
+            if (!locks) return false;
+            const holder = locks[stationName];
+            return holder !== null && holder !== undefined && holder !== this.myId;
         }
 
         update(dt) {
             if (this.gameState === "PLAYING") {
                 this.gameTimer -= dt;
-                if (this.gameTimer <= 0) {
-                    this.gameState = "LEVEL_COMPLETE";
-                    this.showLevelComplete();
-                }
+                if (this.gameTimer <= 0) { this.gameState = "LEVEL_COMPLETE"; this.showLevelComplete(); }
 
                 if (this.redFlash > 0) this.redFlash -= dt;
                 if (this.greenFlash > 0) this.greenFlash -= dt;
 
                 this.spawnTick += dt;
-                if (this.spawnTick > 15 && this.orders.length < 5) {
-                    this.addOrder();
-                    this.spawnTick = 0;
-                }
+                if (this.spawnTick > 15 && this.orders.length < 5) { this.addOrder(); this.spawnTick = 0; }
 
-                // ---- Logic Filter: fully local ----
-                const lfStation = this.stations.find(s => s.name === "Logic Filter");
-                if (lfStation) {
-                    const nearLF = this.player && this.collideRects(
-                        this.player.x - 2.5, this.player.y - 2.5, this.player.w + 5, this.player.h + 5,
-                        lfStation.x, lfStation.y, lfStation.w, lfStation.h
-                    );
-                    const hasUnprocessedOrb = this.player?.heldItem &&
-                        !this.player.heldItem.isVessel &&
-                        !this.player.heldItem.isProcessed;
-
-                    if (nearLF && hasUnprocessedOrb && this.keys[' ']) {
-                        this.logicFilterProcessing = true;
-                        this.logicFilterProgress = Math.min(1.0, this.logicFilterProgress + dt * 0.4);
-                        lfStation.progress = this.logicFilterProgress;
-
-                        if (this.logicFilterProgress >= 1.0) {
-                            this.player.heldItem.isProcessed = true;
-                            this.logicFilterProgress = 0;
-                            this.logicFilterProcessing = false;
-                            lfStation.progress = 0;
-                        }
-                    } else {
-                        this.logicFilterProcessing = false;
-                        this.logicFilterProgress = 0;
-                        lfStation.progress = 0;
-                    }
-                }
-
-                // Update stations: highlight + Dream Visualizer cooking animation
+                // Update station highlights
                 for (let s of this.stations) {
-                    const playerNear = this.player && this.collideRects(
-                        this.player.x - 2.5, this.player.y - 2.5, this.player.w + 5, this.player.h + 5,
+                    s.isHighlighted = this.player && this.collideRects(
+                        this.player.x-2.5, this.player.y-2.5, this.player.w+5, this.player.h+5,
                         s.x, s.y, s.w, s.h
                     );
-                    s.isHighlighted = !!playerNear;
+                }
 
-                    // Dream Visualizer: local cooking animation, tells server when done
-                    if (s.name === "Dream Visualizer" && s.isCooking) {
-                        s.progress += dt * 0.2;
-                        if (s.progress >= 1.0) {
-                            let res = "Abstract Mush";
-                            let resColor = [150, 0, 0];
-                            if (s.heldItem && s.heldItem.bundle.length === 2) {
-                                for (let recipeName in RECIPES) {
-                                    const recipe = RECIPES[recipeName];
-                                    const bundleSorted = [...s.heldItem.bundle].map(c => JSON.stringify(c)).sort();
-                                    const recipeSorted = [...recipe].map(c => JSON.stringify(c)).sort();
-                                    if (bundleSorted.join() === recipeSorted.join()) {
-                                        res = recipeName;
-                                        resColor = [180, 70, 255];
-                                        break;
-                                    }
-                                }
-                            }
-                            const resultItem = new Item(res, resColor, true);
-                            s.heldItem = resultItem;
-                            s.isCooking = false;
-                            s.progress = 0;
-                            // Tell server cooking is done
-                            this.sendStationUpdate({
-                                update_type: "dream_cook_done",
-                                result_item: resultItem.toServerFormat()
-                            });
+                // Logic Filter — check if MY active session needs cancelling (walked away)
+                if (this.myLogicFilterActive) {
+                    const lf = this.getStation("Logic Filter");
+                    const nearLF = lf && this.player && this.collideRects(
+                        this.player.x-2.5, this.player.y-2.5, this.player.w+5, this.player.h+5,
+                        lf.x, lf.y, lf.w, lf.h
+                    );
+                    if (!nearLF) {
+                        // Player walked away — cancel the session, get orb back
+                        this.myLogicFilterActive = false;
+                        if (this.myLogicFilterOrb) {
+                            this.player.heldItem = this.myLogicFilterOrb;
+                            this.myLogicFilterOrb = null;
                         }
+                        this.sendStationUpdate({ update_type: "logic_filter_cancel" });
                     }
                 }
 
                 // Player movement
-                const dx = (this.keys['ArrowRight'] ? 1 : 0) - (this.keys['ArrowLeft'] ? 1 : 0);
-                const dy = (this.keys['ArrowDown'] ? 1 : 0) - (this.keys['ArrowUp'] ? 1 : 0);
+                const dx = (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
+                const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
                 if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
                 // Network sync
                 const now = Date.now();
-                if (this.network.connected && this.player && (now - this.lastSyncTime) >= this.syncInterval) {
+                if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
                     this.lastSyncTime = now;
-                    const heldItemData = this.player.heldItem ? this.player.heldItem.toServerFormat() : null;
                     this.network.sendRaw({
                         action: "SYNC",
-                        x: Math.round(this.player.x),
-                        y: Math.round(this.player.y),
-                        heldItem: heldItemData,
-                        interact_station: this.logicFilterProcessing ? "Logic Filter" : null
+                        x: Math.round(this.player.x), y: Math.round(this.player.y),
+                        heldItem: this.player.heldItem ? this.player.heldItem.toServerFormat() : null,
                     });
                 }
 
-                // Spacebar interactions
-                const spacebarDown = this.keys[' '];
-                if (spacebarDown && !this.spacebarPressed) {
+                // Spacebar interactions — one-shot on key-down
+                const spaceDown = this.keys[' '];
+                if (spaceDown && !this.spacebarPressed) {
                     for (let s of this.stations) {
-                        if (s.isHighlighted) {
-                            this.handleStationInteraction(s);
-                        }
+                        if (s.isHighlighted) this.handleStationInteraction(s);
                     }
                 }
-                this.spacebarPressed = spacebarDown;
+                this.spacebarPressed = spaceDown;
 
                 // Expire orders locally
                 this.orders = this.orders.filter(o => {
                     o.time -= dt;
-                    if (o.time <= 0) {
-                        this.score = Math.max(0, this.score - MISSED_ORDER_PENALTY);
-                        this.redFlash = 0.3;
-                        return false;
-                    }
+                    if (o.time <= 0) { this.score = Math.max(0, this.score - MISSED_ORDER_PENALTY); this.redFlash = 0.3; return false; }
                     return true;
                 });
             }
-
             this.frame++;
             this.mouseClicked = false;
         }
 
         handleStationInteraction(s) {
-            this.lastInteractionTime = Date.now();
-
+            // ---- Void Siphon ----
             if (s.name === "Void Siphon" && this.player.heldItem) {
                 if (this.player.heldItem.isVessel) {
                     this.player.heldItem.bundle = [];
@@ -732,88 +541,109 @@
                 } else {
                     this.player.heldItem = null;
                 }
-                // Void Siphon doesn't hold items, no station update needed
+                return;
+            }
 
-            } else if (s.name.includes("Crate")) {
+            // ---- Crates ----
+            if (s.name.includes("Crate")) {
                 if (this.player.heldItem && s.heldItem) {
-                    const pItem = this.player.heldItem;
-                    const sItem = s.heldItem;
-
+                    const pItem = this.player.heldItem, sItem = s.heldItem;
                     if (pItem.isVessel && !sItem.isVessel) {
                         if (sItem.isProcessed && !pItem.dishName) {
-                            if (sItem.bundle.length > 0) pItem.bundle.push(...sItem.bundle);
-                            else pItem.bundle.push(sItem.color);
+                            pItem.bundle.push(...(sItem.bundle.length > 0 ? sItem.bundle : [sItem.color]));
                             s.heldItem = null;
-                            // Crate is now empty
-                            this.sendStationUpdate({ station_name: s.name, held_item: null, update_type: "item" });
+                            this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
                         } else if ((sItem.name in RECIPES || sItem.name === "Abstract Mush") && !pItem.bundle.length) {
-                            pItem.dishName = sItem.name;
-                            pItem.dishColor = sItem.color;
+                            pItem.dishName = sItem.name; pItem.dishColor = sItem.color;
                             s.heldItem = null;
-                            this.sendStationUpdate({ station_name: s.name, held_item: null, update_type: "item" });
+                            this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
                         if (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush") {
-                            sItem.bundle.push(pItem.color);
-                            this.player.heldItem = null;
-                            // Crate vessel updated with new bundle
-                            this.sendStationUpdate({ station_name: s.name, held_item: sItem.toServerFormat(), update_type: "item" });
+                            sItem.bundle.push(pItem.color); this.player.heldItem = null;
+                            this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
                         } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
-                            sItem.dishName = pItem.name;
-                            sItem.dishColor = pItem.color;
-                            this.player.heldItem = null;
-                            this.sendStationUpdate({ station_name: s.name, held_item: sItem.toServerFormat(), update_type: "item" });
+                            sItem.dishName = pItem.name; sItem.dishColor = pItem.color; this.player.heldItem = null;
+                            this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
                         }
                     }
                 } else if (!this.player.heldItem && s.heldItem) {
-                    // Pick up from crate
-                    this.player.heldItem = s.heldItem;
-                    s.heldItem = null;
-                    this.sendStationUpdate({ station_name: s.name, held_item: null, update_type: "item" });
+                    this.player.heldItem = s.heldItem; s.heldItem = null;
+                    this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
                 } else if (this.player.heldItem && !s.heldItem) {
-                    // Put down into crate
-                    s.heldItem = this.player.heldItem;
-                    this.player.heldItem = null;
-                    this.sendStationUpdate({ station_name: s.name, held_item: s.heldItem.toServerFormat(), update_type: "item" });
+                    s.heldItem = this.player.heldItem; this.player.heldItem = null;
+                    this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: s.heldItem.toServerFormat() });
                 }
+                return;
+            }
 
-            } else if (s.name.includes("Dispenser") && !this.player.heldItem) {
-                // Dispensers are infinite — no station update needed
-                const color = STATION_COLORS[s.name];
-                this.player.heldItem = new Item(s.name.split(' ')[0], color);
+            // ---- Dispensers ----
+            if (s.name.includes("Dispenser") && !this.player.heldItem) {
+                this.player.heldItem = new Item(s.name.split(' ')[0], STATION_COLORS[s.name]);
+                return;
+            }
 
-            } else if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
-                // Optimistic: decrement locally immediately
-                s.vesselCount--;
+            // ---- Vessel Return ----
+            if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
+                s.vesselCount--;   // optimistic
                 this.player.heldItem = new Item("Vessel", WHITE, false, true);
-                // Tell server a vessel was taken
                 this.sendStationUpdate({ update_type: "vessel_take" });
+                return;
+            }
 
-            } else if (s.name === "Dream Visualizer") {
-                if (s.isCooking) return;
+            // ---- Logic Filter ----
+            if (s.name === "Logic Filter") {
+                // Case 1: Station finished processing — pick up MY orb
+                if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && this.myLogicFilterActive) {
+                    this.player.heldItem = deserializeItem(s.heldItem.toServerFormat ? s.heldItem.toServerFormat() : s.heldItem);
+                    this.myLogicFilterActive = false;
+                    this.myLogicFilterOrb = null;
+                    this.sendStationUpdate({ update_type: "logic_filter_pickup" });
+                    return;
+                }
+                // Case 2: Station is busy (someone else) — do nothing, show feedback via "IN USE" label
+                if (s.isCooking && !this.myLogicFilterActive) {
+                    return;
+                }
+                // Case 3: I have an unprocessed orb and station is free — start processing
+                if (!s.isCooking && !this.myLogicFilterActive &&
+                    this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
+                    // Optimistic: remove orb from hands, show it going in
+                    this.myLogicFilterOrb = this.player.heldItem;
+                    this.player.heldItem = null;
+                    this.myLogicFilterActive = true;
+                    this.sendStationUpdate({
+                        update_type: "logic_filter_start",
+                        orb_item: this.myLogicFilterOrb.toServerFormat()
+                    });
+                    return;
+                }
+                return;
+            }
 
-                const isDreamCook = this.player.heldItem?.isVessel &&
-                    this.player.heldItem.bundle.length > 0 &&
-                    !s.isCooking;
+            // ---- Dream Visualizer ----
+            if (s.name === "Dream Visualizer") {
+                if (s.isCooking) return;  // busy — "IN USE" label shown, no interaction
 
                 if (s.heldItem) {
-                    // Pick up finished orb
+                    // Pick up the finished orb — anyone can do this
                     if (!this.player.heldItem) {
                         this.player.heldItem = s.heldItem;
                         s.heldItem = null;
-                        // Tell server the orb was picked up
                         this.sendStationUpdate({ update_type: "dream_pickup" });
-                    } else if (this.player.heldItem.isVessel &&
-                            !this.player.heldItem.dishName &&
-                            !this.player.heldItem.bundle.length) {
+                    } else if (this.player.heldItem.isVessel && !this.player.heldItem.dishName && !this.player.heldItem.bundle.length) {
                         this.player.heldItem.dishName = s.heldItem.name;
                         this.player.heldItem.dishColor = s.heldItem.color;
                         s.heldItem = null;
                         this.sendStationUpdate({ update_type: "dream_pickup" });
                     }
-                } else if (isDreamCook) {
-                    // Start cooking — send bundle to server
+                    return;
+                }
+
+                // Start cooking — player must have vessel with orbs inside
+                if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
                     const bundle = [...this.player.heldItem.bundle];
+                    // Optimistic: show bundle going in
                     const dummy = new Item("Bundle", WHITE, true);
                     dummy.bundle = bundle;
                     s.heldItem = dummy;
@@ -824,47 +654,39 @@
                     this.player.heldItem.dishColor = null;
                     this.sendStationUpdate({ update_type: "dream_cook_start", bundle });
                 }
+                return;
+            }
 
-            } else if (s.name === "Gateway" && this.player.heldItem) {
+            // ---- Gateway ----
+            if (s.name === "Gateway" && this.player.heldItem) {
                 const vesselWithDish = this.player.heldItem.isVessel && this.player.heldItem.dishName;
-                const rawDreamOrb = !this.player.heldItem.isVessel &&
-                                    this.player.heldItem.isProcessed &&
-                                    this.player.heldItem.name in RECIPES;
+                const rawOrb = !this.player.heldItem.isVessel &&
+                               this.player.heldItem.isProcessed &&
+                               this.player.heldItem.name in RECIPES;
 
-                if (vesselWithDish || rawDreamOrb) {
+                if (vesselWithDish || rawOrb) {
                     const dishName = vesselWithDish ? this.player.heldItem.dishName : this.player.heldItem.name;
-
                     this.player.heldItem = null;
                     this.lastDeliveryTime = Date.now();
 
-                    // Optimistic local update
-                    let localDelivered = false;
+                    let delivered = false;
                     for (let i = 0; i < this.orders.length; i++) {
                         if (this.orders[i].name === dishName) {
-                            this.score += (20 + Math.floor(this.orders[i].time / 2));
+                            this.score += 20 + Math.floor(this.orders[i].time / 2);
                             this.orders.splice(i, 1);
-                            localDelivered = true;
+                            delivered = true;
                             break;
                         }
                     }
-
-                    if (localDelivered) {
-                        this.greenFlash = 0.1;
-                    } else {
-                        this.score = Math.max(0, this.score - 15);
-                        this.redFlash = 0.2;
-                    }
+                    if (delivered) this.greenFlash = 0.1;
+                    else { this.score = Math.max(0, this.score - 15); this.redFlash = 0.2; }
 
                     if (this.network.connected && this.network.ws) {
                         try {
                             this.network.ws.send(JSON.stringify({
-                                action: "DELIVER",
-                                dish_name: dishName,
-                                is_vessel: vesselWithDish
+                                action: "DELIVER", dish_name: dishName, is_vessel: vesselWithDish
                             }));
-                        } catch (err) {
-                            console.error("Failed to send DELIVER:", err);
-                        }
+                        } catch(e) { console.error("DELIVER failed:", e); }
                     }
                 }
             }
@@ -873,18 +695,14 @@
         showLevelComplete() {
             document.getElementById('levelCompleteUI').style.display = 'flex';
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
-            const msg = stars >= 1 ? `LEVEL ${this.currentLevel} COMPLETE` : `LEVEL ${this.currentLevel} FAILED`;
-            document.getElementById('levelResultText').textContent = msg;
+            document.getElementById('levelResultText').textContent =
+                stars >= 1 ? `LEVEL ${this.currentLevel} COMPLETE` : `LEVEL ${this.currentLevel} FAILED`;
             document.getElementById('scoreDisplay').textContent = `Final Score: ${this.score}`;
-
-            let starsDisplay = '';
-            for (let i = 0; i < 3; i++) {
-                starsDisplay += stars > i ? '★' : '☆';
-            }
-            document.getElementById('starsDisplay').textContent = starsDisplay;
-
+            document.getElementById('starsDisplay').textContent =
+                [0,1,2].map(i => stars > i ? '★' : '☆').join('');
             const canProgress = stars >= 1 && this.currentLevel < 2;
-            document.getElementById('nextLevelBtn').textContent = canProgress ? "NEXT LEVEL" : (stars < 1 ? "RESTART" : "GAME CLEAR!");
+            document.getElementById('nextLevelBtn').textContent =
+                canProgress ? "NEXT LEVEL" : (stars < 1 ? "RESTART" : "GAME CLEAR!");
         }
 
         draw() {
@@ -892,70 +710,50 @@
             this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
             if (this.gameState === "PLAYING") {
-                for (let s of this.stations) {
-                    s.draw(this.ctx, this.frame);
-                }
+                for (let s of this.stations) s.draw(this.ctx, this.frame);
+                for (let p of Object.values(this.playersDict)) p.draw(this.ctx);
 
-                for (let p of Object.values(this.playersDict)) {
-                    p.draw(this.ctx);
-                }
-
-                drawRect(this.ctx, 0, 0, WIDTH, 95, [30, 30, 50]);
+                drawRect(this.ctx, 0, 0, WIDTH, 95, [30,30,50]);
 
                 for (let i = 0; i < this.orders.length; i++) {
-                    const o = this.orders[i];
-                    const tx = 10 + i * 175;
-                    drawRect(this.ctx, tx, 10, 165, 75, [50, 50, 80], 8);
-
+                    const o = this.orders[i], tx = 10 + i*175;
+                    drawRect(this.ctx, tx, 10, 165, 75, [50,50,80], 8);
                     this.ctx.font = 'bold 14px Arial';
                     this.ctx.fillStyle = rgbToString(WHITE);
-                    this.ctx.fillText(o.name, tx + 8, 30);
-
-                    for (let j = 0; j < o.recipe.length; j++) {
-                        drawCircle(this.ctx, tx + 18 + j * 25, 42, 8, o.recipe[j]);
-                    }
-
+                    this.ctx.fillText(o.name, tx+8, 30);
+                    for (let j = 0; j < o.recipe.length; j++)
+                        drawCircle(this.ctx, tx+18+j*25, 42, 8, o.recipe[j]);
                     const pct = Math.max(0, o.time / o.max);
-                    const barColor = pct < 0.25 ? [255, 80, 80] : TEAL;
-                    drawRect(this.ctx, tx + 8, 62, 150 * pct, 6, barColor, 3);
+                    drawRect(this.ctx, tx+8, 62, 150*pct, 6, pct < 0.25 ? [255,80,80] : TEAL, 3);
                 }
 
                 if (this.redFlash > 0) {
-                    this.ctx.fillStyle = `rgba(255, 0, 0, ${Math.min(1, this.redFlash / 0.2) * 0.5})`;
+                    this.ctx.fillStyle = `rgba(255,0,0,${Math.min(1, this.redFlash/0.2)*0.5})`;
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
                 }
-
                 if (this.greenFlash > 0) {
-                    this.ctx.fillStyle = `rgba(0, 255, 150, ${Math.min(1, this.greenFlash / 0.35) * 0.4})`;
+                    this.ctx.fillStyle = `rgba(0,255,150,${Math.min(1, this.greenFlash/0.35)*0.4})`;
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
                 }
 
                 this.ctx.font = 'bold 28px Arial';
                 this.ctx.fillStyle = rgbToString(GOLD);
                 this.ctx.textAlign = 'right';
-                this.ctx.fillText(`SCORE: ${this.score}`, WIDTH - 40, HEIGHT - 15);
+                this.ctx.fillText(`SCORE: ${this.score}`, WIDTH-40, HEIGHT-15);
                 this.ctx.textAlign = 'left';
                 this.ctx.fillStyle = rgbToString(WHITE);
-                this.ctx.fillText(`TIME: ${Math.max(0, Math.floor(this.gameTimer))}s`, 40, HEIGHT - 15);
+                this.ctx.fillText(`TIME: ${Math.max(0, Math.floor(this.gameTimer))}s`, 40, HEIGHT-15);
             }
         }
 
-        collideRects(x1, y1, w1, h1, x2, y2, w2, h2) {
-            return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
-        }
-
-        arraysEqual(a, b) {
-            if (a.length !== b.length) return false;
-            for (let i = 0; i < a.length; i++) {
-                if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
-            }
-            return true;
+        collideRects(x1,y1,w1,h1,x2,y2,w2,h2) {
+            return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
         }
 
         LEVEL_STAR_THRESHOLDS = LEVEL_STAR_THRESHOLDS;
     }
 
-    // ========== MAIN LOOP ==========
+    // ========== MAIN ==========
     let game;
 
     async function main() {
@@ -965,92 +763,89 @@
             await game.network.connect();
             console.log('Connected to server');
 
-            game.network.onLevelLoad = (level) => {
-                game.loadLevel(level);
-            };
+            game.network.onLevelLoad = (level) => game.loadLevel(level);
 
             game.network.onBroadcast = (data) => {
                 if (game.gameState !== "PLAYING") return;
                 if (!data.players || !data.game_state) return;
 
-                // Sync other players' positions and held items
+                // Sync other players
                 for (let p of data.players) {
                     if (p.id !== game.myId && game.playersDict[p.id]) {
                         game.playersDict[p.id].x = p.x;
                         game.playersDict[p.id].y = p.y;
-                        if (p.heldItem) {
-                            game.playersDict[p.id].heldItem = deserializeItem(p.heldItem);
-                        } else {
-                            game.playersDict[p.id].heldItem = null;
-                        }
+                        game.playersDict[p.id].heldItem = p.heldItem ? deserializeItem(p.heldItem) : null;
                     }
                 }
 
-                const serverState = data.game_state;
+                const ss = data.game_state;
 
-                // Sync timer
-                if (serverState.game_timer > 0 && Math.abs(serverState.game_timer - game.gameTimer) < 5) {
-                    game.gameTimer = serverState.game_timer;
-                }
+                if (ss.game_timer > 0 && Math.abs(ss.game_timer - game.gameTimer) < 5)
+                    game.gameTimer = ss.game_timer;
 
-                // Sync score and orders (with delivery grace period)
                 if (Date.now() - game.lastDeliveryTime > 500) {
-                    game.score = serverState.score;
-                    game.orders = serverState.orders;
+                    game.score = ss.score;
+                    game.orders = ss.orders;
                 }
 
-                // === Sync station state from server (the key multiplayer fix) ===
-                if (serverState.stations) {
+                // Apply server station state to all stations
+                if (ss.stations) {
                     for (let station of game.stations) {
-                        const serverStation = serverState.stations[station.name];
-                        if (!serverStation) continue;
-
-                        // Dream Visualizer: only sync item state, not cooking animation
-                        // (cooking animation is driven locally for smooth 60fps)
-                        if (station.name === "Dream Visualizer") {
-                            // If server says not cooking but we think we are, we started it — keep local
-                            // If server says cooking and we don't know about it, sync it
-                            if (!station.isCooking && serverStation.is_cooking) {
-                                station.isCooking = true;
-                                station.progress = 0;
-                                station.heldItem = deserializeItem(serverStation.held_item);
-                            }
-                            // If server has a finished result (not cooking, has item), sync it
-                            if (!serverStation.is_cooking && serverStation.held_item && !station.isCooking) {
-                                station.heldItem = deserializeItem(serverStation.held_item);
-                            }
-                            // If server says empty and we're not cooking, sync empty
-                            if (!serverStation.held_item && !serverStation.is_cooking && !station.isCooking) {
-                                station.heldItem = null;
-                            }
-                        } else {
-                            // All other stations: fully authoritative from server
-                            station.applyServerState(serverStation);
-                        }
+                        const srv = ss.stations[station.name];
+                        if (!srv) continue;
+                        station.applyServerState(srv);
                     }
                 }
 
-                if (serverState.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
+                // If server rejected my Logic Filter start, get the orb back
+                // (handled via onBroadcast when a rejection comes — see network handler below)
+
+                if (ss.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
                 }
             };
-        } catch (e) {
+
+            // Handle rejected station updates (Logic Filter / Dream Visualizer busy)
+            game.network.onRejection = (data) => {
+                if (data.reason === "logic_filter_busy") {
+                    // Give the orb back to the player
+                    if (game.myLogicFilterActive && game.myLogicFilterOrb) {
+                        game.player.heldItem = game.myLogicFilterOrb;
+                        game.myLogicFilterOrb = null;
+                    }
+                    game.myLogicFilterActive = false;
+                }
+                if (data.reason === "dream_visualizer_busy") {
+                    // Revert the optimistic Dream Visualizer change
+                    const dv = game.stations.find(s => s.name === "Dream Visualizer");
+                    if (dv) {
+                        dv.heldItem = null;
+                        dv.isCooking = false;
+                        dv.progress = 0;
+                    }
+                }
+                // Re-apply authoritative state
+                if (data.game_state?.stations) {
+                    for (let station of game.stations) {
+                        const srv = data.game_state.stations[station.name];
+                        if (srv) station.applyServerState(srv);
+                    }
+                }
+            };
+
+        } catch(e) {
             console.log('Server connection failed - local mode only:', e);
         }
 
         let lastTime = Date.now();
-
         function gameLoop() {
             const now = Date.now();
-            const dt = (now - lastTime) / 1000;
-            lastTime = now;
-
-            game.update(dt);
+            game.update((now - lastTime) / 1000);
             game.draw();
+            lastTime = now;
             requestAnimationFrame(gameLoop);
         }
-
         gameLoop();
     }
 
