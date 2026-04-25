@@ -207,22 +207,16 @@
     class Player {
         constructor(x, y, color) {
             this.x = x; this.y = y; this.w = 40; this.h = 40;
-            this.baseSpeed = 6; this.dashSpeed = 12;
-            this.dashEnergy = 100; this.isDashing = false;
+            this.speed = 6;
             this.color = color; this.heldItem = null;
         }
 
-        move(dx, dy, stations, keys) {
-            const dashing = keys['Shift'] && this.dashEnergy > 0 && (dx||dy);
-            if (dashing) { this.isDashing = true; this.dashEnergy -= 1.8; }
-            else { this.isDashing = false; this.dashEnergy = Math.min(100, this.dashEnergy+0.6); }
-            const speed = this.isDashing ? this.dashSpeed : this.baseSpeed;
-
-            this.x += dx * speed;
+        move(dx, dy, stations) {
+            this.x += dx * this.speed;
             for (let s of stations) {
                 if (this.collidesWithStation(s)) this.x = dx > 0 ? s.x-this.w : s.x+s.w;
             }
-            this.y += dy * speed;
+            this.y += dy * this.speed;
             for (let s of stations) {
                 if (this.collidesWithStation(s)) this.y = dy > 0 ? s.y-this.h : s.y+s.h;
             }
@@ -235,11 +229,7 @@
         }
 
         draw(ctx) {
-            drawRect(ctx, this.x, this.y, this.w, this.h, this.isDashing ? WHITE : this.color, 8);
-            if (this.dashEnergy < 100) {
-                drawRect(ctx, this.x, this.y-12, 40, 5, [50,50,50]);
-                drawRect(ctx, this.x, this.y-12, 40*(this.dashEnergy/100), 5, SKY_BLUE);
-            }
+            drawRect(ctx, this.x, this.y, this.w, this.h, this.color, 8);
             if (this.heldItem) this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2);
         }
     }
@@ -499,7 +489,7 @@
             // Player movement
             const dx = (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
             const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
-            if (this.player) this.player.move(dx, dy, this.stations, this.keys);
+            if (this.player) this.player.move(dx, dy, this.stations);
 
             // Network sync every 16ms — lf_holding piggybacked so server
             // always knows the current hold state without relying on edge events.
