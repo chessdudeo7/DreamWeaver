@@ -33,22 +33,30 @@ class Network {
                     try {
                         const data = JSON.parse(event.data);
 
+                        // Server pushed a level load
                         if (data.status === 'level_load') {
                             if (this.onLevelLoad) this.onLevelLoad(data.level);
                             return;
                         }
 
-                        // Rejection from a station update attempt
-                        if (data.status === 'rejected') {
-                            if (this._rid && this._pendingRequests.has(data._rid)) {
-                                this._pendingRequests.get(data._rid)(data);
-                                this._pendingRequests.delete(data._rid);
-                            }
-                            if (this.onRejection) this.onRejection(data);
+                        // Server confirmed a logic_filter_cancel and is returning the orb
+                        if (data.status === 'logic_filter_cancelled') {
+                            if (this.onLFCancelled) this.onLFCancelled(data);
                             return;
                         }
 
-                        // Broadcast game state (no _rid)
+                        // Server rejected a station action (machine busy)
+                        if (data.status === 'rejected') {
+                            if (this.onRejection) this.onRejection(data);
+                            // Also resolve any pending request with the same _rid
+                            if (data._rid !== undefined && this._pendingRequests.has(data._rid)) {
+                                this._pendingRequests.get(data._rid)(data);
+                                this._pendingRequests.delete(data._rid);
+                            }
+                            return;
+                        }
+
+                        // Broadcast game state (no _rid — sent to all clients in room)
                         if (!data.hasOwnProperty('_rid')) {
                             if (this.onBroadcast) this.onBroadcast(data);
                             return;
@@ -70,6 +78,7 @@ class Network {
         });
     }
 
+    // For requests that need a response (CREATE, JOIN, GET_LOBBY, etc.)
     send(data) {
         return new Promise((resolve) => {
             if (!this.connected) { resolve(null); return; }
@@ -85,6 +94,7 @@ class Network {
         });
     }
 
+    // Fire-and-forget — for SYNC, DELIVER, STATION_UPDATE
     sendRaw(data) {
         if (!this.connected || !this.ws) return;
         try { this.ws.send(JSON.stringify(data)); } catch(e) {}

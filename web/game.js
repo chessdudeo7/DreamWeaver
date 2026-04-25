@@ -29,12 +29,12 @@
 
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
 
-    // ========== UTILITY FUNCTIONS ==========
-    function rgbToString(rgb) { return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`; }
+    // ========== UTILITY ==========
+    function rgbToString(rgb) { return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }
 
-    function drawRect(ctx, x, y, w, h, color, borderRadius = 0) {
+    function drawRect(ctx, x, y, w, h, color, r = 0) {
         ctx.fillStyle = rgbToString(color);
-        if (borderRadius > 0) { roundRect(ctx, x, y, w, h, borderRadius); ctx.fill(); }
+        if (r > 0) { roundRect(ctx, x, y, w, h, r); ctx.fill(); }
         else ctx.fillRect(x, y, w, h);
     }
 
@@ -45,27 +45,23 @@
 
     function roundRect(ctx, x, y, w, h, r) {
         ctx.beginPath();
-        ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
-        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-        ctx.lineTo(x + w, y + h - r);
-        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-        ctx.lineTo(x + r, y + h);
-        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y);
+        ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+        ctx.lineTo(x+w, y+h-r);
+        ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+        ctx.lineTo(x+r, y+h);
+        ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+        ctx.lineTo(x, y+r);
+        ctx.quadraticCurveTo(x, y, x+r, y);
         ctx.closePath();
     }
 
     // ========== ITEM ==========
     class Item {
         constructor(name, color, isProcessed = false, isVessel = false) {
-            this.name = name;
-            this.color = color;
-            this.isProcessed = isProcessed;
-            this.isVessel = isVessel;
-            this.bundle = [];
-            this.dishName = null;
-            this.dishColor = null;
+            this.name = name; this.color = color;
+            this.isProcessed = isProcessed; this.isVessel = isVessel;
+            this.bundle = []; this.dishName = null; this.dishColor = null;
         }
 
         toServerFormat() {
@@ -81,31 +77,30 @@
             const r = (12 + pulse) * scale;
 
             if (this.isVessel) {
-                ctx.strokeStyle = rgbToString([120, 100, 200]);
-                ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.ellipse(x, y, 24, 14, 0, 0, Math.PI * 2); ctx.stroke();
+                ctx.strokeStyle = rgbToString([120, 100, 200]); ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.ellipse(x, y, 24, 14, 0, 0, Math.PI*2); ctx.stroke();
                 if (this.dishName) {
-                    const dr = Math.max(3, r * 0.6);
-                    drawCircle(ctx, x, y - 8, dr, this.dishColor);
-                    drawCircle(ctx, x, y - 8, Math.max(1, dr - 3), WHITE);
+                    const dr = Math.max(3, r*0.6);
+                    drawCircle(ctx, x, y-8, dr, this.dishColor);
+                    drawCircle(ctx, x, y-8, Math.max(1, dr-3), WHITE);
                 } else if (this.bundle.length > 0) {
                     for (let i = 0; i < this.bundle.length; i++) {
-                        const a = (2 * Math.PI / this.bundle.length) * i + Date.now() * 0.005;
+                        const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.005;
                         const ir = this.bundle.length > 2 ? 5 : 7;
                         const or = this.bundle.length > 2 ? 10 : 14;
-                        drawCircle(ctx, x + Math.cos(a)*or, y - 8 + Math.sin(a)*or, ir, this.bundle[i]);
-                        drawCircle(ctx, x + Math.cos(a)*or, y - 8 + Math.sin(a)*or, Math.max(1, ir-3), WHITE);
+                        drawCircle(ctx, x+Math.cos(a)*or, y-8+Math.sin(a)*or, ir, this.bundle[i]);
+                        drawCircle(ctx, x+Math.cos(a)*or, y-8+Math.sin(a)*or, Math.max(1,ir-3), WHITE);
                     }
                 }
             } else {
                 ctx.strokeStyle = rgbToString(this.color); ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.arc(x, y, r + 4, 0, Math.PI * 2); ctx.stroke();
+                ctx.beginPath(); ctx.arc(x, y, r+4, 0, Math.PI*2); ctx.stroke();
                 drawCircle(ctx, x, y, r, this.color);
-                if (!this.isProcessed) drawCircle(ctx, x, y, r / 2, WHITE);
+                if (!this.isProcessed) drawCircle(ctx, x, y, r/2, WHITE);
                 for (let i = 0; i < this.bundle.length; i++) {
-                    const a = (2 * Math.PI / this.bundle.length) * i + Date.now() * 0.005;
-                    drawCircle(ctx, x + Math.cos(a)*25, y + Math.sin(a)*25, 8, this.bundle[i]);
-                    drawCircle(ctx, x + Math.cos(a)*25, y + Math.sin(a)*25, 4, WHITE);
+                    const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.005;
+                    drawCircle(ctx, x+Math.cos(a)*25, y+Math.sin(a)*25, 8, this.bundle[i]);
+                    drawCircle(ctx, x+Math.cos(a)*25, y+Math.sin(a)*25, 4, WHITE);
                 }
             }
         }
@@ -129,11 +124,9 @@
         constructor(name, x, y, w, h) {
             this.name = name; this.x = x; this.y = y; this.w = w; this.h = h;
             this.color = STATION_COLORS[name.includes("Crate") ? "Crate" : name];
-            this.progress = 0;
-            this.isHighlighted = false;
-            this.heldItem = null;
-            this.isCooking = false;
-            this.vesselCount = 0;
+            this.progress = 0; this.isHighlighted = false;
+            this.heldItem = null; this.isCooking = false;
+            this.vesselCount = 0; this.activeHolders = 0;
         }
 
         applyServerState(s) {
@@ -141,12 +134,14 @@
             if (s.vessel_count !== undefined) this.vesselCount = s.vessel_count;
             if (s.is_cooking !== undefined) this.isCooking = s.is_cooking;
             if (s.progress !== undefined) this.progress = s.progress;
+            if (s.active_holders !== undefined) this.activeHolders = s.active_holders;
         }
 
         draw(ctx, frame) {
             const borderColor = this.isHighlighted ? TEAL : WHITE;
             drawRect(ctx, this.x+5, this.y+5, this.w, this.h, [25,20,45], 12);
             drawRect(ctx, this.x, this.y, this.w, this.h, this.color, 10);
+
             if (this.isHighlighted) {
                 ctx.fillStyle = 'rgba(255,255,255,0.1)';
                 roundRect(ctx, this.x, this.y, this.w, this.h, 10); ctx.fill();
@@ -160,8 +155,8 @@
                 ctx.fillStyle = rgbToString(["Void Siphon","Vessel Return","Logic Filter"].includes(this.name) ? WHITE : [20,20,20]);
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 const words = this.name.split(' ');
-                const lh = 14, startY = this.y + this.h/2 - words.length*lh/2;
-                words.forEach((w, i) => ctx.fillText(w, this.x+this.w/2, startY+i*lh, this.w-10));
+                const lh = 14, sy = this.y + this.h/2 - words.length*lh/2;
+                words.forEach((w, i) => ctx.fillText(w, this.x+this.w/2, sy+i*lh, this.w-10));
                 ctx.restore();
             }
 
@@ -180,20 +175,29 @@
                 this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2, this.heldItem.isVessel ? 1.5 : 1.0);
             }
 
-            if (this.progress > 0 && this.progress <= 1.0) {
-                if (this.name === "Logic Filter" || (this.name === "Dream Visualizer" && this.isCooking)) {
-                    drawRect(ctx, this.x, this.y+this.h+8, this.w, 8, [50,50,50], 4);
-                    drawRect(ctx, this.x, this.y+this.h+8, this.w*this.progress, 8, TEAL, 4);
-                }
+            // Progress bar for processor stations
+            if (this.progress > 0 && this.progress <= 1.0 &&
+                (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
+                drawRect(ctx, this.x, this.y+this.h+8, this.w, 8, [50,50,50], 4);
+                // Bar colour: gold when multiple players boosting, teal otherwise
+                const barColor = (this.name === "Logic Filter" && this.activeHolders > 1) ? GOLD : TEAL;
+                drawRect(ctx, this.x, this.y+this.h+8, this.w*this.progress, 8, barColor, 4);
             }
 
-            // "In use" indicator for locked stations
+            // "IN USE" label — shown while occupied by someone else
             if (this.isCooking && (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
                 ctx.save();
                 ctx.font = 'bold 10px Arial';
-                ctx.fillStyle = 'rgba(255,200,0,0.9)';
                 ctx.textAlign = 'center';
-                ctx.fillText('IN USE', this.x + this.w/2, this.y - 8);
+
+                // Show player count boost indicator on Logic Filter
+                if (this.name === "Logic Filter" && this.activeHolders > 1) {
+                    ctx.fillStyle = 'rgba(255,215,0,0.95)';
+                    ctx.fillText(`⚡ x${this.activeHolders}`, this.x+this.w/2, this.y-8);
+                } else {
+                    ctx.fillStyle = 'rgba(255,200,0,0.9)';
+                    ctx.fillText('IN USE', this.x+this.w/2, this.y-8);
+                }
                 ctx.restore();
             }
         }
@@ -211,16 +215,16 @@
         move(dx, dy, stations, keys) {
             const dashing = keys['Shift'] && this.dashEnergy > 0 && (dx||dy);
             if (dashing) { this.isDashing = true; this.dashEnergy -= 1.8; }
-            else { this.isDashing = false; this.dashEnergy = Math.min(100, this.dashEnergy + 0.6); }
+            else { this.isDashing = false; this.dashEnergy = Math.min(100, this.dashEnergy+0.6); }
             const speed = this.isDashing ? this.dashSpeed : this.baseSpeed;
 
             this.x += dx * speed;
             for (let s of stations) {
-                if (this.collidesWithStation(s)) this.x = dx > 0 ? s.x - this.w : s.x + s.w;
+                if (this.collidesWithStation(s)) this.x = dx > 0 ? s.x-this.w : s.x+s.w;
             }
             this.y += dy * speed;
             for (let s of stations) {
-                if (this.collidesWithStation(s)) this.y = dy > 0 ? s.y - this.h : s.y + s.h;
+                if (this.collidesWithStation(s)) this.y = dy > 0 ? s.y-this.h : s.y+s.h;
             }
             this.x = Math.max(0, Math.min(WIDTH-this.w, this.x));
             this.y = Math.max(95, Math.min(HEIGHT-155, this.y));
@@ -274,9 +278,13 @@
             this.syncInterval = 16;
             this.lastDeliveryTime = 0;
 
-            // Logic Filter state — tracks whether THIS player started it
-            this.myLogicFilterActive = false;   // true = I sent logic_filter_start, waiting for server
-            this.myLogicFilterOrb = null;        // the orb I put in (to return if cancelled)
+            // ---- Logic Filter state for this player ----
+            // "owner"  = I placed the orb in and am waiting for it to finish
+            // "helper" = someone else placed an orb, I'm just holding space to boost
+            // null     = not involved
+            this.lfRole = null;          // null | "owner" | "helper"
+            this.lfOrbInHand = null;     // the orb I was holding when I pressed space (to return if cancelled/rejected)
+            this.lfHoldingSpace = false; // whether I was sending hold signals last frame
 
             this.setupEventListeners();
         }
@@ -290,7 +298,7 @@
             document.addEventListener('keyup', (e) => { this.keys[e.key] = false; });
             document.addEventListener('mousemove', (e) => {
                 const r = this.canvas.getBoundingClientRect();
-                this.mousePos = { x: e.clientX - r.left, y: e.clientY - r.top };
+                this.mousePos = { x: e.clientX-r.left, y: e.clientY-r.top };
             });
             document.addEventListener('click', () => this.mouseClicked = true);
 
@@ -401,7 +409,7 @@
 
             this.orders = []; this.score = 0; this.frame = 0; this.spawnTick = 0;
             this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
-            this.myLogicFilterActive = false; this.myLogicFilterOrb = null;
+            this.lfRole = null; this.lfOrbInHand = null; this.lfHoldingSpace = false;
 
             if (levelNum === 1) {
                 this.stations = [
@@ -433,7 +441,6 @@
                 ];
             }
 
-            // Seed initial orders locally (server will sync)
             for (let i = 0; i < 3; i++) this.addOrder();
         }
 
@@ -451,87 +458,101 @@
 
         getStation(name) { return this.stations.find(s => s.name === name); }
 
-        isStationLocked(stationName, locks) {
-            // locks is the station_locks dict from server state
-            if (!locks) return false;
-            const holder = locks[stationName];
-            return holder !== null && holder !== undefined && holder !== this.myId;
-        }
-
         update(dt) {
-            if (this.gameState === "PLAYING") {
-                this.gameTimer -= dt;
-                if (this.gameTimer <= 0) { this.gameState = "LEVEL_COMPLETE"; this.showLevelComplete(); }
+            if (this.gameState !== "PLAYING") { this.frame++; this.mouseClicked = false; return; }
 
-                if (this.redFlash > 0) this.redFlash -= dt;
-                if (this.greenFlash > 0) this.greenFlash -= dt;
+            this.gameTimer -= dt;
+            if (this.gameTimer <= 0) { this.gameState = "LEVEL_COMPLETE"; this.showLevelComplete(); }
 
-                this.spawnTick += dt;
-                if (this.spawnTick > 15 && this.orders.length < 5) { this.addOrder(); this.spawnTick = 0; }
+            if (this.redFlash > 0) this.redFlash -= dt;
+            if (this.greenFlash > 0) this.greenFlash -= dt;
 
-                // Update station highlights
-                for (let s of this.stations) {
-                    s.isHighlighted = this.player && this.collideRects(
-                        this.player.x-2.5, this.player.y-2.5, this.player.w+5, this.player.h+5,
-                        s.x, s.y, s.w, s.h
-                    );
+            this.spawnTick += dt;
+            if (this.spawnTick > 15 && this.orders.length < 5) { this.addOrder(); this.spawnTick = 0; }
+
+            // Highlight stations near player
+            for (let s of this.stations) {
+                s.isHighlighted = !!( this.player && this.collideRects(
+                    this.player.x-2.5, this.player.y-2.5, this.player.w+5, this.player.h+5,
+                    s.x, s.y, s.w, s.h
+                ));
+            }
+
+            // ---- Logic Filter hold-spacebar logic ----
+            const lf = this.getStation("Logic Filter");
+            if (lf) {
+                const nearLF = lf.isHighlighted;
+                const spaceHeld = !!this.keys[' '];
+
+                // Determine if I'm actively contributing (near + holding space + involved)
+                const iContribute = nearLF && spaceHeld && this.lfRole !== null;
+
+                if (iContribute && !this.lfHoldingSpace) {
+                    // Just started holding — tell server
+                    this.sendStationUpdate({ update_type: "logic_filter_hold_start" });
+                    this.lfHoldingSpace = true;
+                } else if (!iContribute && this.lfHoldingSpace) {
+                    // Stopped holding (released space or walked away)
+                    this.sendStationUpdate({ update_type: "logic_filter_hold_stop" });
+                    this.lfHoldingSpace = false;
                 }
 
-                // Logic Filter — check if MY active session needs cancelling (walked away)
-                if (this.myLogicFilterActive) {
-                    const lf = this.getStation("Logic Filter");
-                    const nearLF = lf && this.player && this.collideRects(
-                        this.player.x-2.5, this.player.y-2.5, this.player.w+5, this.player.h+5,
-                        lf.x, lf.y, lf.w, lf.h
-                    );
-                    if (!nearLF) {
-                        // Player walked away — cancel the session, get orb back
-                        this.myLogicFilterActive = false;
-                        if (this.myLogicFilterOrb) {
-                            this.player.heldItem = this.myLogicFilterOrb;
-                            this.myLogicFilterOrb = null;
-                        }
-                        this.sendStationUpdate({ update_type: "logic_filter_cancel" });
-                    }
+                // If I'm the owner and I walked away while it's still cooking, cancel
+                if (this.lfRole === "owner" && !nearLF && lf.isCooking) {
+                    this.lfRole = null;
+                    this.lfHoldingSpace = false;
+                    this.sendStationUpdate({ update_type: "logic_filter_cancel" });
+                    // Orb will be returned via onLFCancelled callback
                 }
 
-                // Player movement
-                const dx = (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
-                const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
-                if (this.player) this.player.move(dx, dy, this.stations, this.keys);
-
-                // Network sync
-                const now = Date.now();
-                if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
-                    this.lastSyncTime = now;
-                    this.network.sendRaw({
-                        action: "SYNC",
-                        x: Math.round(this.player.x), y: Math.round(this.player.y),
-                        heldItem: this.player.heldItem ? this.player.heldItem.toServerFormat() : null,
-                    });
+                // If I'm the owner and processing finished — prompt to pick up (space press handled below)
+                // If I'm a helper and the owner left (machine stopped cooking), clear helper role
+                if (this.lfRole === "helper" && !lf.isCooking) {
+                    this.lfRole = null;
+                    this.lfHoldingSpace = false;
                 }
+            }
 
-                // Spacebar interactions — one-shot on key-down
-                const spaceDown = this.keys[' '];
-                if (spaceDown && !this.spacebarPressed) {
-                    for (let s of this.stations) {
-                        if (s.isHighlighted) this.handleStationInteraction(s);
-                    }
-                }
-                this.spacebarPressed = spaceDown;
+            // Player movement
+            const dx = (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
+            const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
+            if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-                // Expire orders locally
-                this.orders = this.orders.filter(o => {
-                    o.time -= dt;
-                    if (o.time <= 0) { this.score = Math.max(0, this.score - MISSED_ORDER_PENALTY); this.redFlash = 0.3; return false; }
-                    return true;
+            // Network sync
+            const now = Date.now();
+            if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
+                this.lastSyncTime = now;
+                this.network.sendRaw({
+                    action: "SYNC",
+                    x: Math.round(this.player.x), y: Math.round(this.player.y),
+                    heldItem: this.player.heldItem ? this.player.heldItem.toServerFormat() : null,
                 });
             }
-            this.frame++;
-            this.mouseClicked = false;
+
+            // Spacebar one-shot interactions (on key-down edge)
+            const spaceDown = !!this.keys[' '];
+            if (spaceDown && !this.spacebarPressed) {
+                for (let s of this.stations) {
+                    if (s.isHighlighted) this.handleStationInteraction(s);
+                }
+            }
+            this.spacebarPressed = spaceDown;
+
+            // Expire orders locally
+            this.orders = this.orders.filter(o => {
+                o.time -= dt;
+                if (o.time <= 0) {
+                    this.score = Math.max(0, this.score - MISSED_ORDER_PENALTY);
+                    this.redFlash = 0.3; return false;
+                }
+                return true;
+            });
+
+            this.frame++; this.mouseClicked = false;
         }
 
         handleStationInteraction(s) {
+
             // ---- Void Siphon ----
             if (s.name === "Void Siphon" && this.player.heldItem) {
                 if (this.player.heldItem.isVessel) {
@@ -585,7 +606,7 @@
 
             // ---- Vessel Return ----
             if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
-                s.vesselCount--;   // optimistic
+                s.vesselCount--;  // optimistic
                 this.player.heldItem = new Item("Vessel", WHITE, false, true);
                 this.sendStationUpdate({ update_type: "vessel_take" });
                 return;
@@ -593,40 +614,55 @@
 
             // ---- Logic Filter ----
             if (s.name === "Logic Filter") {
-                // Case 1: Station finished processing — pick up MY orb
-                if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && this.myLogicFilterActive) {
-                    this.player.heldItem = deserializeItem(s.heldItem.toServerFormat ? s.heldItem.toServerFormat() : s.heldItem);
-                    this.myLogicFilterActive = false;
-                    this.myLogicFilterOrb = null;
+                // Case A: Machine done, I'm the owner — pick up the processed orb
+                if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && this.lfRole === "owner") {
+                    this.player.heldItem = deserializeItem(s.heldItem.toServerFormat
+                        ? s.heldItem.toServerFormat() : s.heldItem);
+                    this.lfRole = null;
+                    this.lfOrbInHand = null;
+                    this.lfHoldingSpace = false;
                     this.sendStationUpdate({ update_type: "logic_filter_pickup" });
                     return;
                 }
-                // Case 2: Station is busy (someone else) — do nothing, show feedback via "IN USE" label
-                if (s.isCooking && !this.myLogicFilterActive) {
+
+                // Case B: Machine is cooking, I have no role — I can boost by holding space
+                // (space press registers the intent; the hold loop in update() handles hold_start)
+                if (s.isCooking && this.lfRole === null) {
+                    this.lfRole = "helper";
+                    // hold_start will fire next frame via the update() loop
                     return;
                 }
-                // Case 3: I have an unprocessed orb and station is free — start processing
-                if (!s.isCooking && !this.myLogicFilterActive &&
+
+                // Case C: Machine is idle, I have an unprocessed orb — place it in
+                if (!s.isCooking && this.lfRole === null &&
                     this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                    // Optimistic: remove orb from hands, show it going in
-                    this.myLogicFilterOrb = this.player.heldItem;
+                    // Save the orb so we can return it if rejected/cancelled
+                    this.lfOrbInHand = this.player.heldItem;
+                    // Optimistic: remove from hands, show it in machine
                     this.player.heldItem = null;
-                    this.myLogicFilterActive = true;
+                    s.heldItem = this.lfOrbInHand;    // show it locally right away
+                    s.isCooking = true;
+                    s.progress = 0;
+                    this.lfRole = "owner";
+                    this.lfHoldingSpace = false;       // hold_start fires next frame
                     this.sendStationUpdate({
-                        update_type: "logic_filter_start",
-                        orb_item: this.myLogicFilterOrb.toServerFormat()
+                        update_type: "logic_filter_place",
+                        orb_item: this.lfOrbInHand.toServerFormat()
                     });
                     return;
                 }
+
+                // Case D: Machine is busy (someone else's orb, or I already placed)
+                // Do nothing — "IN USE" label is already shown on the station.
                 return;
             }
 
             // ---- Dream Visualizer ----
             if (s.name === "Dream Visualizer") {
-                if (s.isCooking) return;  // busy — "IN USE" label shown, no interaction
+                if (s.isCooking) return;  // busy, IN USE shown
 
                 if (s.heldItem) {
-                    // Pick up the finished orb — anyone can do this
+                    // Pick up the finished orb — any player can do this
                     if (!this.player.heldItem) {
                         this.player.heldItem = s.heldItem;
                         s.heldItem = null;
@@ -640,10 +676,9 @@
                     return;
                 }
 
-                // Start cooking — player must have vessel with orbs inside
+                // Start cooking — need vessel with orbs
                 if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
                     const bundle = [...this.player.heldItem.bundle];
-                    // Optimistic: show bundle going in
                     const dummy = new Item("Bundle", WHITE, true);
                     dummy.bundle = bundle;
                     s.heldItem = dummy;
@@ -674,12 +709,11 @@
                         if (this.orders[i].name === dishName) {
                             this.score += 20 + Math.floor(this.orders[i].time / 2);
                             this.orders.splice(i, 1);
-                            delivered = true;
-                            break;
+                            delivered = true; break;
                         }
                     }
                     if (delivered) this.greenFlash = 0.1;
-                    else { this.score = Math.max(0, this.score - 15); this.redFlash = 0.2; }
+                    else { this.score = Math.max(0, this.score-15); this.redFlash = 0.2; }
 
                     if (this.network.connected && this.network.ws) {
                         try {
@@ -692,14 +726,39 @@
             }
         }
 
+        // Called by network when server confirms logic_filter_cancel and returns the orb
+        onLFCancelled(returnedOrb) {
+            if (returnedOrb) {
+                this.player.heldItem = deserializeItem(returnedOrb);
+            } else if (this.lfOrbInHand) {
+                this.player.heldItem = this.lfOrbInHand;
+            }
+            this.lfRole = null;
+            this.lfOrbInHand = null;
+            this.lfHoldingSpace = false;
+        }
+
+        // Called by network when server rejects logic_filter_place (machine was busy)
+        onLFRejected() {
+            // Return the orb to the player's hand
+            if (this.lfOrbInHand) {
+                this.player.heldItem = this.lfOrbInHand;
+                this.lfOrbInHand = null;
+            }
+            this.lfRole = null;
+            this.lfHoldingSpace = false;
+            // Revert the optimistic station display — server broadcast will fix it properly
+            const lf = this.getStation("Logic Filter");
+            if (lf && !lf.isCooking) { lf.heldItem = null; }
+        }
+
         showLevelComplete() {
             document.getElementById('levelCompleteUI').style.display = 'flex';
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             document.getElementById('levelResultText').textContent =
                 stars >= 1 ? `LEVEL ${this.currentLevel} COMPLETE` : `LEVEL ${this.currentLevel} FAILED`;
             document.getElementById('scoreDisplay').textContent = `Final Score: ${this.score}`;
-            document.getElementById('starsDisplay').textContent =
-                [0,1,2].map(i => stars > i ? '★' : '☆').join('');
+            document.getElementById('starsDisplay').textContent = [0,1,2].map(i => stars>i?'★':'☆').join('');
             const canProgress = stars >= 1 && this.currentLevel < 2;
             document.getElementById('nextLevelBtn').textContent =
                 canProgress ? "NEXT LEVEL" : (stars < 1 ? "RESTART" : "GAME CLEAR!");
@@ -716,23 +775,23 @@
                 drawRect(this.ctx, 0, 0, WIDTH, 95, [30,30,50]);
 
                 for (let i = 0; i < this.orders.length; i++) {
-                    const o = this.orders[i], tx = 10 + i*175;
+                    const o = this.orders[i], tx = 10+i*175;
                     drawRect(this.ctx, tx, 10, 165, 75, [50,50,80], 8);
                     this.ctx.font = 'bold 14px Arial';
                     this.ctx.fillStyle = rgbToString(WHITE);
                     this.ctx.fillText(o.name, tx+8, 30);
                     for (let j = 0; j < o.recipe.length; j++)
                         drawCircle(this.ctx, tx+18+j*25, 42, 8, o.recipe[j]);
-                    const pct = Math.max(0, o.time / o.max);
-                    drawRect(this.ctx, tx+8, 62, 150*pct, 6, pct < 0.25 ? [255,80,80] : TEAL, 3);
+                    const pct = Math.max(0, o.time/o.max);
+                    drawRect(this.ctx, tx+8, 62, 150*pct, 6, pct<0.25?[255,80,80]:TEAL, 3);
                 }
 
                 if (this.redFlash > 0) {
-                    this.ctx.fillStyle = `rgba(255,0,0,${Math.min(1, this.redFlash/0.2)*0.5})`;
+                    this.ctx.fillStyle = `rgba(255,0,0,${Math.min(1,this.redFlash/0.2)*0.5})`;
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
                 }
                 if (this.greenFlash > 0) {
-                    this.ctx.fillStyle = `rgba(0,255,150,${Math.min(1, this.greenFlash/0.35)*0.4})`;
+                    this.ctx.fillStyle = `rgba(0,255,150,${Math.min(1,this.greenFlash/0.35)*0.4})`;
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
                 }
 
@@ -742,12 +801,12 @@
                 this.ctx.fillText(`SCORE: ${this.score}`, WIDTH-40, HEIGHT-15);
                 this.ctx.textAlign = 'left';
                 this.ctx.fillStyle = rgbToString(WHITE);
-                this.ctx.fillText(`TIME: ${Math.max(0, Math.floor(this.gameTimer))}s`, 40, HEIGHT-15);
+                this.ctx.fillText(`TIME: ${Math.max(0,Math.floor(this.gameTimer))}s`, 40, HEIGHT-15);
             }
         }
 
         collideRects(x1,y1,w1,h1,x2,y2,w2,h2) {
-            return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
+            return x1<x2+w2 && x1+w1>x2 && y1<y2+h2 && y1+h1>y2;
         }
 
         LEVEL_STAR_THRESHOLDS = LEVEL_STAR_THRESHOLDS;
@@ -765,11 +824,38 @@
 
             game.network.onLevelLoad = (level) => game.loadLevel(level);
 
+            game.network.onLFCancelled = (data) => {
+                game.onLFCancelled(data.returned_orb);
+                // Also sync full state
+                if (data.game_state?.stations) {
+                    for (let s of game.stations) {
+                        const srv = data.game_state.stations[s.name];
+                        if (srv) s.applyServerState(srv);
+                    }
+                }
+            };
+
+            game.network.onRejection = (data) => {
+                if (data.reason === "logic_filter_busy") {
+                    game.onLFRejected();
+                }
+                if (data.reason === "dream_visualizer_busy") {
+                    const dv = game.getStation("Dream Visualizer");
+                    if (dv) { dv.heldItem = null; dv.isCooking = false; dv.progress = 0; }
+                }
+                // Resync authoritative state
+                if (data.game_state?.stations) {
+                    for (let s of game.stations) {
+                        const srv = data.game_state.stations[s.name];
+                        if (srv) s.applyServerState(srv);
+                    }
+                }
+            };
+
             game.network.onBroadcast = (data) => {
                 if (game.gameState !== "PLAYING") return;
                 if (!data.players || !data.game_state) return;
 
-                // Sync other players
                 for (let p of data.players) {
                     if (p.id !== game.myId && game.playersDict[p.id]) {
                         game.playersDict[p.id].x = p.x;
@@ -779,58 +865,37 @@
                 }
 
                 const ss = data.game_state;
-
                 if (ss.game_timer > 0 && Math.abs(ss.game_timer - game.gameTimer) < 5)
                     game.gameTimer = ss.game_timer;
-
                 if (Date.now() - game.lastDeliveryTime > 500) {
                     game.score = ss.score;
                     game.orders = ss.orders;
                 }
 
-                // Apply server station state to all stations
                 if (ss.stations) {
                     for (let station of game.stations) {
                         const srv = ss.stations[station.name];
                         if (!srv) continue;
-                        station.applyServerState(srv);
+
+                        if (station.name === "Logic Filter") {
+                            // Always sync progress and cooking state from server
+                            station.isCooking = srv.is_cooking;
+                            station.progress = srv.progress;
+                            station.activeHolders = srv.active_holders ?? 0;
+                            // Only sync heldItem if I'm not the owner
+                            // (owner tracks it locally to avoid flicker)
+                            if (game.lfRole !== "owner") {
+                                station.heldItem = deserializeItem(srv.held_item);
+                            }
+                        } else {
+                            station.applyServerState(srv);
+                        }
                     }
                 }
-
-                // If server rejected my Logic Filter start, get the orb back
-                // (handled via onBroadcast when a rejection comes — see network handler below)
 
                 if (ss.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
-                }
-            };
-
-            // Handle rejected station updates (Logic Filter / Dream Visualizer busy)
-            game.network.onRejection = (data) => {
-                if (data.reason === "logic_filter_busy") {
-                    // Give the orb back to the player
-                    if (game.myLogicFilterActive && game.myLogicFilterOrb) {
-                        game.player.heldItem = game.myLogicFilterOrb;
-                        game.myLogicFilterOrb = null;
-                    }
-                    game.myLogicFilterActive = false;
-                }
-                if (data.reason === "dream_visualizer_busy") {
-                    // Revert the optimistic Dream Visualizer change
-                    const dv = game.stations.find(s => s.name === "Dream Visualizer");
-                    if (dv) {
-                        dv.heldItem = null;
-                        dv.isCooking = false;
-                        dv.progress = 0;
-                    }
-                }
-                // Re-apply authoritative state
-                if (data.game_state?.stations) {
-                    for (let station of game.stations) {
-                        const srv = data.game_state.stations[station.name];
-                        if (srv) station.applyServerState(srv);
-                    }
                 }
             };
 
