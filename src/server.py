@@ -384,15 +384,17 @@ async def handle_client(websocket):
                                 accepted = True
 
                         elif update_type == "logic_filter_place":
-                            # Player places their orb into the machine and starts holding space.
-                            # Only accepted if machine is idle and unlocked.
+                            # Player places their orb into the machine.
+                            # Does NOT add to holders — client sends hold_start separately
+                            # only while space is genuinely held, preventing auto-processing.
                             lf = game_state.stations.get("Logic Filter")
                             if lf and not lf["is_cooking"] and not lf["held_item"]:
                                 if game_state.try_lock("Logic Filter", client_id):
                                     lf["held_item"] = request.get("orb_item")
                                     lf["is_cooking"] = True
                                     lf["progress"] = 0.0
-                                    game_state.logic_filter_holders.add(client_id)
+                                    # Do NOT add to logic_filter_holders here.
+                                    # Progress only advances when hold_start arrives.
                                     accepted = True
                                 else:
                                     # Busy — reject so client keeps the orb

@@ -633,11 +633,13 @@
                     return;
                 }
 
-                // Case B: Machine is cooking, I have no role — I can boost by holding space
-                // (space press registers the intent; the hold loop in update() handles hold_start)
+                // Case B: Machine is cooking, I have no role — I can boost by holding space.
+                // Mark lfHoldingSpace = true so the hold loop doesn't fire hold_start
+                // immediately from the same keypress that registered us as a helper.
+                // Player must release and re-hold space to actually start contributing.
                 if (s.isCooking && this.lfRole === null) {
                     this.lfRole = "helper";
-                    // hold_start will fire next frame via the update() loop
+                    this.lfHoldingSpace = true;
                     return;
                 }
 
@@ -648,11 +650,14 @@
                     this.lfOrbInHand = this.player.heldItem;
                     // Optimistic: remove from hands, show it in machine
                     this.player.heldItem = null;
-                    s.heldItem = this.lfOrbInHand;    // show it locally right away
+                    s.heldItem = this.lfOrbInHand;
                     s.isCooking = true;
                     s.progress = 0;
                     this.lfRole = "owner";
-                    this.lfHoldingSpace = false;       // hold_start fires next frame
+                    // Mark as if we're already "holding" so the hold loop doesn't
+                    // immediately fire hold_start just because space is still physically
+                    // down from the placement keypress. Player must release + re-hold.
+                    this.lfHoldingSpace = true;
                     this.sendStationUpdate({
                         update_type: "logic_filter_place",
                         orb_item: this.lfOrbInHand.toServerFormat()
