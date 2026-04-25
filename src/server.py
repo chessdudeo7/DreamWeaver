@@ -226,7 +226,8 @@ class GameState:
                     lf["progress"] = 0.0
                     lf["active_holders"] = 0
                     self.logic_filter_holders.clear()
-                    # Lock stays so only the owner can pick up
+                    # Release lock so any player can pick up the finished orb
+                    self.station_locks["Logic Filter"] = None
         else:
             if lf:
                 lf["active_holders"] = 0
@@ -453,10 +454,10 @@ async def handle_client(websocket):
 
                         elif update_type == "logic_filter_pickup":
                             lf = game_state.stations.get("Logic Filter")
-                            lock = game_state.station_locks.get("Logic Filter")
-                            if lf and not lf["is_cooking"] and lf["held_item"] and lock == client_id:
+                            # Any player can pick up a finished orb — lock is released on completion
+                            if lf and not lf["is_cooking"] and lf["held_item"]:
                                 lf["held_item"] = None
-                                game_state.release_lock("Logic Filter", client_id)
+                                game_state.station_locks["Logic Filter"] = None
                                 accepted = True
 
                         elif update_type == "dream_cook_start":

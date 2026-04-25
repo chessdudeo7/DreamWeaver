@@ -614,10 +614,11 @@
 
             // ---- Logic Filter ----
             if (s.name === "Logic Filter") {
-                // Case A: Machine done, I'm the owner — pick up the processed orb
-                if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && this.lfRole === "owner") {
+                // Case A: Machine done, anyone with empty hands can pick up the processed orb
+                if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && !this.player.heldItem) {
                     this.player.heldItem = deserializeItem(s.heldItem.toServerFormat
                         ? s.heldItem.toServerFormat() : s.heldItem);
+                    // Clear whatever role this player had
                     this.lfRole = null;
                     this.lfOrbInHand = null;
                     this.lfHoldingSpace = false;
