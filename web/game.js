@@ -511,6 +511,13 @@
                     this.lfRole = null;
                     this.lfHoldingSpace = false;
                 }
+                // If I'm the owner but the machine is now empty and idle (someone else grabbed it),
+                // clear our role so we don't get stuck
+                if (this.lfRole === "owner" && !lf.isCooking && !lf.heldItem) {
+                    this.lfRole = null;
+                    this.lfOrbInHand = null;
+                    this.lfHoldingSpace = false;
+                }
             }
 
             // Player movement
@@ -878,19 +885,8 @@
                         const srv = ss.stations[station.name];
                         if (!srv) continue;
 
-                        if (station.name === "Logic Filter") {
-                            // Always sync progress and cooking state from server
-                            station.isCooking = srv.is_cooking;
-                            station.progress = srv.progress;
-                            station.activeHolders = srv.active_holders ?? 0;
-                            // Only sync heldItem if I'm not the owner
-                            // (owner tracks it locally to avoid flicker)
-                            if (game.lfRole !== "owner") {
-                                station.heldItem = deserializeItem(srv.held_item);
-                            }
-                        } else {
-                            station.applyServerState(srv);
-                        }
+                        // All stations always sync fully from server — single source of truth
+                        station.applyServerState(srv);
                     }
                 }
 
