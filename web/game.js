@@ -282,9 +282,8 @@
             // "owner"  = I placed the orb in and am waiting for it to finish
             // "helper" = someone else placed an orb, I'm just holding space to boost
             // null     = not involved
-            this.lfRole = null;          // null | "owner" | "helper"
-            this.lfOrbInHand = null;     // the orb I was holding when I pressed space (to return if cancelled/rejected)
-            this.lfHoldingSpace = false; // whether I was sending hold signals last frame
+            this.lfRole = null;       // null | "owner" | "helper"
+            this.lfOrbInHand = null;  // saved orb to return if cancelled/rejected
 
             this.setupEventListeners();
         }
@@ -409,7 +408,7 @@
 
             this.orders = []; this.score = 0; this.frame = 0; this.spawnTick = 0;
             this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
-            this.lfRole = null; this.lfOrbInHand = null; this.lfHoldingSpace = false;
+            this.lfRole = null; this.lfOrbInHand = null;
 
             if (levelNum === 1) {
                 this.stations = [
@@ -478,45 +477,22 @@
                 ));
             }
 
-            // ---- Logic Filter hold-spacebar logic ----
+            // ---- Logic Filter role cleanup ----
             const lf = this.getStation("Logic Filter");
             if (lf) {
-                const nearLF = lf.isHighlighted;
-                const spaceHeld = !!this.keys[' '];
-
-                // Determine if I'm actively contributing (near + holding space + involved)
-                const iContribute = nearLF && spaceHeld && this.lfRole !== null;
-
-                if (iContribute && !this.lfHoldingSpace) {
-                    // Just started holding — tell server
-                    this.sendStationUpdate({ update_type: "logic_filter_hold_start" });
-                    this.lfHoldingSpace = true;
-                } else if (!iContribute && this.lfHoldingSpace) {
-                    // Stopped holding (released space or walked away)
-                    this.sendStationUpdate({ update_type: "logic_filter_hold_stop" });
-                    this.lfHoldingSpace = false;
-                }
-
-                // If I'm the owner and I walked away while it's still cooking, cancel
-                if (this.lfRole === "owner" && !nearLF && lf.isCooking) {
+                // Owner walked away while orb still cooking — cancel, get orb back
+                if (this.lfRole === "owner" && !lf.isHighlighted && lf.isCooking) {
                     this.lfRole = null;
-                    this.lfHoldingSpace = false;
                     this.sendStationUpdate({ update_type: "logic_filter_cancel" });
-                    // Orb will be returned via onLFCancelled callback
                 }
-
-                // If I'm the owner and processing finished — prompt to pick up (space press handled below)
-                // If I'm a helper and the owner left (machine stopped cooking), clear helper role
+                // Helper role clears when machine stops cooking
                 if (this.lfRole === "helper" && !lf.isCooking) {
                     this.lfRole = null;
-                    this.lfHoldingSpace = false;
                 }
-                // If I'm the owner but the machine is now empty and idle (someone else grabbed it),
-                // clear our role so we don't get stuck
+                // Owner role clears if machine is empty and idle (someone else picked up)
                 if (this.lfRole === "owner" && !lf.isCooking && !lf.heldItem) {
                     this.lfRole = null;
                     this.lfOrbInHand = null;
-                    this.lfHoldingSpace = false;
                 }
             }
 
@@ -525,14 +501,22 @@
             const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
             if (this.player) this.player.move(dx, dy, this.stations, this.keys);
 
-            // Network sync
+            // Network sync every 16ms — lf_holding piggybacked so server
+            // always knows the current hold state without relying on edge events.
             const now = Date.now();
             if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
                 this.lastSyncTime = now;
+                const lfStation = this.getStation("Logic Filter");
+                const nearLF = lfStation?.isHighlighted ?? false;
+                // True whenever this player has a role and is physically holding space near the machine.
+                // No debounce — the server only processes while holders > 0, and the server
+                // never auto-adds on place, so holding space on the same press as placement is safe.
+                const lfHolding = this.lfRole !== null && nearLF && !!this.keys[' '];
                 this.network.sendRaw({
                     action: "SYNC",
                     x: Math.round(this.player.x), y: Math.round(this.player.y),
                     heldItem: this.player.heldItem ? this.player.heldItem.toServerFormat() : null,
+                    lf_holding: lfHolding,
                 });
             }
 
@@ -628,18 +612,14 @@
                     // Clear whatever role this player had
                     this.lfRole = null;
                     this.lfOrbInHand = null;
-                    this.lfHoldingSpace = false;
                     this.sendStationUpdate({ update_type: "logic_filter_pickup" });
                     return;
                 }
 
-                // Case B: Machine is cooking, I have no role — I can boost by holding space.
-                // Mark lfHoldingSpace = true so the hold loop doesn't fire hold_start
-                // immediately from the same keypress that registered us as a helper.
-                // Player must release and re-hold space to actually start contributing.
+                // Case B: Machine is cooking, I have no role — register as helper.
+                // lf_holding in SYNC will be true immediately on the next tick if space stays held.
                 if (s.isCooking && this.lfRole === null) {
                     this.lfRole = "helper";
-                    this.lfHoldingSpace = true;
                     return;
                 }
 
@@ -654,10 +634,8 @@
                     s.isCooking = true;
                     s.progress = 0;
                     this.lfRole = "owner";
-                    // Mark as if we're already "holding" so the hold loop doesn't
-                    // immediately fire hold_start just because space is still physically
-                    // down from the placement keypress. Player must release + re-hold.
-                    this.lfHoldingSpace = true;
+                    // lf_holding in SYNC will be true next tick if space stays held.
+                    // No debounce — server won't auto-process since holders starts at 0.
                     this.sendStationUpdate({
                         update_type: "logic_filter_place",
                         orb_item: this.lfOrbInHand.toServerFormat()
@@ -748,7 +726,6 @@
             }
             this.lfRole = null;
             this.lfOrbInHand = null;
-            this.lfHoldingSpace = false;
         }
 
         // Called by network when server rejects logic_filter_place (machine was busy)
@@ -759,7 +736,6 @@
                 this.lfOrbInHand = null;
             }
             this.lfRole = null;
-            this.lfHoldingSpace = false;
             // Revert the optimistic station display — server broadcast will fix it properly
             const lf = this.getStation("Logic Filter");
             if (lf && !lf.isCooking) { lf.heldItem = null; }

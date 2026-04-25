@@ -348,6 +348,19 @@ async def handle_client(websocket):
                                 p["heldItem"] = request.get("heldItem")
                                 break
 
+                        # Piggyback Logic Filter hold state onto every SYNC so we never
+                        # miss an edge event — reacts within one sync interval (16ms).
+                        lf_holding = request.get("lf_holding", False)
+                        lf = game_state.stations.get("Logic Filter")
+                        if lf and lf["is_cooking"]:
+                            if lf_holding:
+                                game_state.logic_filter_holders.add(client_id)
+                            else:
+                                game_state.logic_filter_holders.discard(client_id)
+                        else:
+                            # Machine not cooking — always discard
+                            game_state.logic_filter_holders.discard(client_id)
+
                         dt = time() - game_state.last_update_time
                         game_state.update(dt, rooms[current_room]["players_dict"])
                         game_state.last_update_time = time()
@@ -384,17 +397,14 @@ async def handle_client(websocket):
                                 accepted = True
 
                         elif update_type == "logic_filter_place":
-                            # Player places their orb into the machine.
-                            # Does NOT add to holders — client sends hold_start separately
-                            # only while space is genuinely held, preventing auto-processing.
+                            # Player places their orb. Does NOT add to logic_filter_holders —
+                            # progress only advances while lf_holding=true arrives via SYNC.
                             lf = game_state.stations.get("Logic Filter")
                             if lf and not lf["is_cooking"] and not lf["held_item"]:
                                 if game_state.try_lock("Logic Filter", client_id):
                                     lf["held_item"] = request.get("orb_item")
                                     lf["is_cooking"] = True
                                     lf["progress"] = 0.0
-                                    # Do NOT add to logic_filter_holders here.
-                                    # Progress only advances when hold_start arrives.
                                     accepted = True
                                 else:
                                     # Busy — reject so client keeps the orb
@@ -414,19 +424,6 @@ async def handle_client(websocket):
                                     "players": list(rooms[current_room]["players_dict"].values())
                                 }, rid))
                                 continue
-
-                        elif update_type == "logic_filter_hold_start":
-                            # A second (or third) player joins the boost — they are near the
-                            # machine and holding space but don't own the orb.
-                            lf = game_state.stations.get("Logic Filter")
-                            if lf and lf["is_cooking"]:
-                                game_state.logic_filter_holders.add(client_id)
-                                accepted = True
-
-                        elif update_type == "logic_filter_hold_stop":
-                            # Player released space or walked away
-                            game_state.logic_filter_holders.discard(client_id)
-                            accepted = True
 
                         elif update_type == "logic_filter_cancel":
                             # Owner walked away while orb is still processing — orb returns to them
