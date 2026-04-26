@@ -27,7 +27,6 @@ STATION_COLORS = {
     "Vessel Return": [80, 60, 120]
 }
 
-# Server-authoritative cook times (seconds, at 1 player)
 DREAM_VISUALIZER_COOK_TIME = 5.0
 LOGIC_FILTER_PROCESS_TIME = 2.5
 
@@ -35,19 +34,23 @@ rooms = {}
 client_to_room = {}
 room_connections = {}
 
+
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
+
 
 def make_response(data, rid=None):
     if rid is not None:
         data['_rid'] = rid
     return json.dumps(data)
 
+
 def match_recipe(bundle):
     for recipe_name, recipe_colors in RECIPES.items():
         if sorted(json.dumps(c) for c in bundle) == sorted(json.dumps(c) for c in recipe_colors):
             return recipe_name, [180, 70, 255]
     return "Abstract Mush", [150, 0, 0]
+
 
 async def schedule_vessel_respawn(room_code, delay=5.0):
     await asyncio.sleep(delay)
@@ -74,9 +77,7 @@ class GameState:
         self.spawn_tick = 0
         self.orders = []
         self.stations = {}
-        # station_locks: who owns the station (placed their orb in)
         self.station_locks = {}
-        # logic_filter_holders: set of client_ids actively holding space at Logic Filter
         self.logic_filter_holders = set()
         self.last_update_time = time()
         self._create_stations(level)
@@ -121,7 +122,6 @@ class GameState:
                 "progress": 0.0,
                 "is_cooking": False,
                 "vessel_count": 0,
-                # Extra field broadcast to clients so they can render the boost indicator
                 "active_holders": 0,
             }
             self.station_locks[name] = None
@@ -193,7 +193,7 @@ class GameState:
                 remaining.append(o)
         self.orders = remaining
 
-        # Dream Visualizer: server timer, single result, no player input needed
+        # Dream Visualizer — server owns the timer, fires once
         dv = self.stations.get("Dream Visualizer")
         if dv and dv["is_cooking"]:
             dv["progress"] = min(1.0, dv["progress"] + dt / DREAM_VISUALIZER_COOK_TIME)
@@ -209,16 +209,14 @@ class GameState:
                 dv["progress"] = 0.0
                 self.station_locks["Dream Visualizer"] = None
 
-        # Logic Filter: progresses only while at least one player holds space,
-        # and speed scales with number of holders (multiplayer boost).
+        # Logic Filter — progresses only while players hold space (lf_holding via SYNC)
+        # Speed scales with number of holders: 2 players = 2x, 3 = 3x, etc.
         lf = self.stations.get("Logic Filter")
         if lf and lf["is_cooking"]:
-            n_holders = len(self.logic_filter_holders)
-            lf["active_holders"] = n_holders
-            if n_holders > 0:
-                # Each additional player adds a full speed multiplier
-                speed_mult = n_holders
-                lf["progress"] = min(1.0, lf["progress"] + dt * speed_mult / LOGIC_FILTER_PROCESS_TIME)
+            n = len(self.logic_filter_holders)
+            lf["active_holders"] = n
+            if n > 0:
+                lf["progress"] = min(1.0, lf["progress"] + dt * n / LOGIC_FILTER_PROCESS_TIME)
                 if lf["progress"] >= 1.0:
                     if lf["held_item"]:
                         lf["held_item"]["is_processed"] = True
@@ -226,7 +224,7 @@ class GameState:
                     lf["progress"] = 0.0
                     lf["active_holders"] = 0
                     self.logic_filter_holders.clear()
-                    # Release lock so any player can pick up the finished orb
+                    # Release lock so any player can pick up
                     self.station_locks["Logic Filter"] = None
         else:
             if lf:
@@ -284,7 +282,8 @@ async def handle_client(websocket):
                 color = PLAYER_COLORS[0]
                 rooms[code] = {
                     "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}],
-                    "state": "LOBBY", "game_state": None,
+                    "state": "LOBBY",
+                    "game_state": None,
                     "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
                 }
                 room_connections[code] = [websocket]
@@ -316,15 +315,16 @@ async def handle_client(websocket):
                                 "game_started": rooms[current_room]["state"] == "PLAYING"}
 
             elif action == "START_GAME":
+                # Marks the room as started so non-host lobby polls know to show level select
                 if current_room and current_room in rooms:
                     rooms[current_room]["state"] = "PLAYING"
-                    rooms[current_room]["game_state"] = GameState(1)
                     response = {"status": "success", "action": "GAME_STARTED"}
 
             elif action == "LOAD_LEVEL":
                 if current_room and current_room in rooms:
                     level = request.get("level", 1)
                     rooms[current_room]["game_state"] = GameState(level)
+                    # Broadcast level_load to ALL players so everyone enters the game together
                     if current_room in room_connections:
                         msg = json.dumps({"status": "level_load", "level": level})
                         disconnected = []
@@ -348,8 +348,7 @@ async def handle_client(websocket):
                                 p["heldItem"] = request.get("heldItem")
                                 break
 
-                        # Piggyback Logic Filter hold state onto every SYNC so we never
-                        # miss an edge event — reacts within one sync interval (16ms).
+                        # lf_holding piggybacked on every SYNC — updates holders set instantly
                         lf_holding = request.get("lf_holding", False)
                         lf = game_state.stations.get("Logic Filter")
                         if lf and lf["is_cooking"]:
@@ -358,7 +357,6 @@ async def handle_client(websocket):
                             else:
                                 game_state.logic_filter_holders.discard(client_id)
                         else:
-                            # Machine not cooking — always discard
                             game_state.logic_filter_holders.discard(client_id)
 
                         dt = time() - game_state.last_update_time
@@ -397,17 +395,16 @@ async def handle_client(websocket):
                                 accepted = True
 
                         elif update_type == "logic_filter_place":
-                            # Player places their orb. Does NOT add to logic_filter_holders —
-                            # progress only advances while lf_holding=true arrives via SYNC.
                             lf = game_state.stations.get("Logic Filter")
                             if lf and not lf["is_cooking"] and not lf["held_item"]:
                                 if game_state.try_lock("Logic Filter", client_id):
                                     lf["held_item"] = request.get("orb_item")
                                     lf["is_cooking"] = True
                                     lf["progress"] = 0.0
+                                    # Do NOT add to holders — progress starts only when
+                                    # lf_holding=true arrives via SYNC
                                     accepted = True
                                 else:
-                                    # Busy — reject so client keeps the orb
                                     await websocket.send(make_response({
                                         "status": "rejected",
                                         "reason": "logic_filter_busy",
@@ -416,7 +413,6 @@ async def handle_client(websocket):
                                     }, rid))
                                     continue
                             else:
-                                # Machine already occupied — reject silently so client keeps orb
                                 await websocket.send(make_response({
                                     "status": "rejected",
                                     "reason": "logic_filter_busy",
@@ -426,7 +422,6 @@ async def handle_client(websocket):
                                 continue
 
                         elif update_type == "logic_filter_cancel":
-                            # Owner walked away while orb is still processing — orb returns to them
                             lf = game_state.stations.get("Logic Filter")
                             if lf and game_state.station_locks.get("Logic Filter") == client_id:
                                 orb = lf["held_item"]
@@ -436,24 +431,20 @@ async def handle_client(websocket):
                                 lf["active_holders"] = 0
                                 game_state.logic_filter_holders.discard(client_id)
                                 game_state.release_lock("Logic Filter", client_id)
-                                # Send the orb back to the client directly
                                 await websocket.send(make_response({
                                     "status": "logic_filter_cancelled",
                                     "returned_orb": orb,
                                     "game_state": game_state.to_dict(),
                                     "players": list(rooms[current_room]["players_dict"].values())
                                 }, rid))
-                                # Also broadcast so others see the reset
                                 await broadcast_room(current_room, rooms, room_connections)
                                 continue
                             else:
-                                # Non-owner walked away — just remove from holders
                                 game_state.logic_filter_holders.discard(client_id)
                                 accepted = True
 
                         elif update_type == "logic_filter_pickup":
                             lf = game_state.stations.get("Logic Filter")
-                            # Any player can pick up a finished orb — lock is released on completion
                             if lf and not lf["is_cooking"] and lf["held_item"]:
                                 lf["held_item"] = None
                                 game_state.station_locks["Logic Filter"] = None
@@ -559,7 +550,6 @@ async def handle_client(websocket):
             if room_code in rooms and rooms[room_code]["game_state"]:
                 gs = rooms[room_code]["game_state"]
                 gs.release_all_locks(client_id)
-                # If this client owned the Logic Filter and it was still processing, cancel it
                 lf = gs.stations.get("Logic Filter")
                 if lf and lf["is_cooking"] and gs.station_locks.get("Logic Filter") is None:
                     lf["is_cooking"] = False
@@ -572,6 +562,7 @@ async def main():
     print(f"WebSocket server starting on {HOST}:{PORT}")
     async with websockets.serve(handle_client, HOST, PORT):
         await asyncio.Future()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

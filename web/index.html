@@ -4,43 +4,123 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dreamweaver</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="gameContainer">
         <canvas id="gameCanvas" width="900" height="700"></canvas>
     </div>
-    
-    <!-- Main Menu UI -->
+
+    <!-- Floating orbs background (shared across overlays) -->
+    <div class="orb-field" aria-hidden="true">
+        <div class="orb" style="--c:255,215,0;  --x:12%; --y:18%; --s:18px; --d:0s;   --drift:22px"></div>
+        <div class="orb" style="--c:0,191,255;  --x:80%; --y:10%; --s:12px; --d:1.2s; --drift:18px"></div>
+        <div class="orb" style="--c:180,70,255; --x:55%; --y:75%; --s:22px; --d:0.6s; --drift:28px"></div>
+        <div class="orb" style="--c:255,140,0;  --x:90%; --y:60%; --s:10px; --d:2s;   --drift:14px"></div>
+        <div class="orb" style="--c:0,255,200;  --x:30%; --y:85%; --s:16px; --d:1.5s; --drift:20px"></div>
+        <div class="orb" style="--c:255,215,0;  --x:70%; --y:40%; --s:8px;  --d:0.3s; --drift:12px"></div>
+        <div class="orb" style="--c:0,191,255;  --x:5%;  --y:55%; --s:14px; --d:1.8s; --drift:24px"></div>
+        <div class="orb" style="--c:180,70,255; --x:45%; --y:5%;  --s:20px; --d:0.9s; --drift:16px"></div>
+        <div class="orb" style="--c:0,255,200;  --x:60%; --y:92%; --s:11px; --d:2.4s; --drift:19px"></div>
+        <div class="orb" style="--c:255,140,0;  --x:22%; --y:45%; --s:9px;  --d:1.1s; --drift:15px"></div>
+    </div>
+
+    <!-- ── MAIN MENU ── -->
     <div id="mainMenu" class="ui-overlay">
-        <div class="ui-panel">
-            <h1>DREAMWEAVER</h1>
-            <input id="playerName" type="text" placeholder="Enter your name" maxlength="12" class="ui-input">
-            <input id="roomCode" type="text" placeholder="Room code (4 letters)" maxlength="4" class="ui-input" style="display: none;">
-            <div class="ui-buttons">
-                <button id="hostBtn" class="ui-btn btn-host">HOST</button>
-                <button id="joinBtn" class="ui-btn btn-join">JOIN</button>
+        <div class="ui-panel main-panel">
+            <div class="title-block">
+                <div class="title-eyebrow">A Cooperative Dream</div>
+                <h1 class="game-title">Dreamweaver</h1>
+                <div class="title-rule"></div>
+                <p class="title-sub">Craft Dreams Together</p>
+            </div>
+            <div class="form-block">
+                <input id="playerName" type="text" placeholder="your dreamer name" maxlength="12" class="ui-input">
+                <input id="roomCode"   type="text" placeholder="room code" maxlength="4" class="ui-input" style="display:none;">
+                <div class="ui-buttons">
+                    <button id="hostBtn" class="ui-btn btn-host">Host a dream</button>
+                    <button id="joinBtn" class="ui-btn btn-join">Enter a dream</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Lobby UI -->
-    <div id="lobbyUI" class="ui-overlay" style="display: none;">
-        <div class="ui-panel">
-            <h2 id="roomCodeDisplay">ROOM CODE: ????</h2>
-            <p id="playerCountDisplay">Players (0/4):</p>
+    <!-- ── LOBBY ── -->
+    <div id="lobbyUI" class="ui-overlay" style="display:none;">
+        <div class="ui-panel lobby-panel">
+            <div class="lobby-header">
+                <div class="title-eyebrow">Gathering Dreamers...</div>
+                <h2 class="game-title" style="font-size:2.8rem;">The Dream Room</h2>
+                <div class="room-code-pill">
+                    <span class="room-code-label">Room Code</span>
+                    <span id="roomCodeDisplay" class="room-code-value">????</span>
+                </div>
+            </div>
+            <p id="playerCountDisplay" class="player-count">Dreamers (0/4):</p>
             <div id="playersList" class="players-list"></div>
-            <button id="startGameBtn" class="ui-btn btn-teal" style="display: none;">START GAME</button>
+            <button id="startGameBtn" class="ui-btn btn-teal" style="display:none;">Choose a Dream →</button>
         </div>
     </div>
 
-    <!-- Level Complete UI -->
-    <div id="levelCompleteUI" class="ui-overlay" style="display: none;">
-        <div class="ui-panel">
-            <h2 id="levelResultText">Level Complete</h2>
-            <div id="starsDisplay" style="margin: 20px 0;"></div>
-            <p id="scoreDisplay">Score: 0</p>
-            <button id="nextLevelBtn" class="ui-btn btn-teal">CONTINUE</button>
+    <!-- ── LEVEL SELECT ── -->
+    <div id="levelSelectUI" class="ui-overlay" style="display:none;">
+        <div class="ui-panel level-select-panel">
+            <div class="title-eyebrow">The Dream Atlas</div>
+            <h2 class="game-title" style="font-size:2.6rem;">Choose Your Dream</h2>
+            <p class="level-select-hint" id="levelSelectHint">Only the host may choose.</p>
+            <div class="level-grid">
+
+                <div class="level-card" data-level="1">
+                    <div class="level-card-glow"></div>
+                    <div class="level-card-orbs">
+                        <span class="lc-orb" style="--c:255,215,0;  --lx:20%; --ly:30%"></span>
+                        <span class="lc-orb" style="--c:0,191,255;  --lx:65%; --ly:55%"></span>
+                    </div>
+                    <div class="level-card-content">
+                        <div class="level-number">I</div>
+                        <div class="level-name">The First Dream</div>
+                        <div class="level-desc">Learn the art of weaving.<br>Two orbs, one vision.</div>
+                        <div class="level-recipes">
+                            <span class="recipe-dot" style="background:rgb(255,215,0)"></span>
+                            <span class="recipe-dot" style="background:rgb(0,191,255)"></span>
+                            <span class="recipe-dot" style="background:rgb(255,140,0)"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="level-card" data-level="2">
+                    <div class="level-card-glow"></div>
+                    <div class="level-card-orbs">
+                        <span class="lc-orb" style="--c:180,70,255; --lx:15%; --ly:60%"></span>
+                        <span class="lc-orb" style="--c:255,140,0;  --lx:70%; --ly:25%"></span>
+                        <span class="lc-orb" style="--c:0,255,200;  --lx:50%; --ly:70%"></span>
+                    </div>
+                    <div class="level-card-content">
+                        <div class="level-number">II</div>
+                        <div class="level-name">The Deep Sleep</div>
+                        <div class="level-desc">The stations shift.<br>The pressure rises.</div>
+                        <div class="level-recipes">
+                            <span class="recipe-dot" style="background:rgb(180,70,255)"></span>
+                            <span class="recipe-dot" style="background:rgb(255,140,0)"></span>
+                            <span class="recipe-dot" style="background:rgb(0,255,200)"></span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ── LEVEL COMPLETE ── -->
+    <div id="levelCompleteUI" class="ui-overlay" style="display:none;">
+        <div class="ui-panel complete-panel">
+            <h2 id="levelResultText" class="game-title" style="font-size:2.4rem;">Dream Complete</h2>
+            <div id="starsDisplay" class="stars-display"></div>
+            <p id="scoreDisplay" class="score-display">Score: 0</p>
+            <button id="nextLevelBtn" class="ui-btn btn-teal">Continue →</button>
         </div>
     </div>
 

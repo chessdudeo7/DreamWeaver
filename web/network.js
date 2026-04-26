@@ -33,13 +33,13 @@ class Network {
                     try {
                         const data = JSON.parse(event.data);
 
-                        // Server pushed a level load
+                        // Server pushed a level load — triggers loadLevel() on all clients
                         if (data.status === 'level_load') {
                             if (this.onLevelLoad) this.onLevelLoad(data.level);
                             return;
                         }
 
-                        // Server confirmed a logic_filter_cancel and is returning the orb
+                        // Server confirmed logic_filter_cancel and is returning the orb
                         if (data.status === 'logic_filter_cancelled') {
                             if (this.onLFCancelled) this.onLFCancelled(data);
                             return;
@@ -48,7 +48,6 @@ class Network {
                         // Server rejected a station action (machine busy)
                         if (data.status === 'rejected') {
                             if (this.onRejection) this.onRejection(data);
-                            // Also resolve any pending request with the same _rid
                             if (data._rid !== undefined && this._pendingRequests.has(data._rid)) {
                                 this._pendingRequests.get(data._rid)(data);
                                 this._pendingRequests.delete(data._rid);
@@ -78,7 +77,7 @@ class Network {
         });
     }
 
-    // For requests that need a response (CREATE, JOIN, GET_LOBBY, etc.)
+    // For requests that need a response (CREATE, JOIN, GET_LOBBY, START_GAME, LOAD_LEVEL)
     send(data) {
         return new Promise((resolve) => {
             if (!this.connected) { resolve(null); return; }

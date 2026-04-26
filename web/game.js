@@ -175,22 +175,17 @@
                 this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2, this.heldItem.isVessel ? 1.5 : 1.0);
             }
 
-            // Progress bar for processor stations
             if (this.progress > 0 && this.progress <= 1.0 &&
                 (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
                 drawRect(ctx, this.x, this.y+this.h+8, this.w, 8, [50,50,50], 4);
-                // Bar colour: gold when multiple players boosting, teal otherwise
                 const barColor = (this.name === "Logic Filter" && this.activeHolders > 1) ? GOLD : TEAL;
                 drawRect(ctx, this.x, this.y+this.h+8, this.w*this.progress, 8, barColor, 4);
             }
 
-            // "IN USE" label — shown while occupied by someone else
             if (this.isCooking && (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
                 ctx.save();
                 ctx.font = 'bold 10px Arial';
                 ctx.textAlign = 'center';
-
-                // Show player count boost indicator on Logic Filter
                 if (this.name === "Logic Filter" && this.activeHolders > 1) {
                     ctx.fillStyle = 'rgba(255,215,0,0.95)';
                     ctx.fillText(`⚡ x${this.activeHolders}`, this.x+this.w/2, this.y-8);
@@ -268,10 +263,7 @@
             this.syncInterval = 16;
             this.lastDeliveryTime = 0;
 
-            // ---- Logic Filter state for this player ----
-            // "owner"  = I placed the orb in and am waiting for it to finish
-            // "helper" = someone else placed an orb, I'm just holding space to boost
-            // null     = not involved
+            // Logic Filter state for this player
             this.lfRole = null;       // null | "owner" | "helper"
             this.lfOrbInHand = null;  // saved orb to return if cancelled/rejected
 
@@ -302,11 +294,21 @@
             });
             document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
             document.getElementById('nextLevelBtn').addEventListener('click', () => this.nextLevel());
+
             document.getElementById('playerName').addEventListener('input', (e) => {
                 this.playerName = e.target.value.substring(0, 12);
             });
             document.getElementById('roomCode').addEventListener('input', (e) => {
                 this.roomCode = e.target.value.substring(0, 4).toUpperCase();
+            });
+
+            // Level select card clicks
+            document.querySelectorAll('.level-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    if (!this.isHost) return;
+                    const level = parseInt(card.dataset.level);
+                    this.selectLevel(level);
+                });
             });
         }
 
@@ -333,27 +335,70 @@
             } catch(e) { console.error("Join error:", e); }
         }
 
+        // Host clicks "Choose a Dream →" in lobby — opens the level select screen
         async startGame() {
-            if (this.isHost && this.network.connected) {
-                await this.network.send({ action: "START_GAME" });
-                this.loadLevel(1);
+            if (!this.isHost || !this.network.connected) return;
+            // Tell server game has started so non-host lobby polls see game_started=true
+            await this.network.send({ action: "START_GAME" });
+            this.showLevelSelect();
+        }
+
+        // Host clicked a level card
+        async selectLevel(levelNum) {
+            if (!this.isHost) return;
+            if (this.network.connected) {
+                await this.network.send({ action: "LOAD_LEVEL", level: levelNum });
+                // Host loads locally via the broadcast (onLevelLoad), just like other players
+            } else {
+                this.loadLevel(levelNum);
             }
         }
 
+        // Used by the "Next Level" button on the level-complete screen
         async nextLevel() {
             if (!this.isHost) return;
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             const next = (stars >= 1 && this.currentLevel < 2) ? 2 : this.currentLevel;
-            if (this.network.connected) await this.network.send({ action: "LOAD_LEVEL", level: next });
-            else this.loadLevel(next);
+            if (this.network.connected) {
+                await this.network.send({ action: "LOAD_LEVEL", level: next });
+            } else {
+                this.loadLevel(next);
+            }
         }
+
+        // ── UI helpers ──────────────────────────────
 
         showLobbyUI() {
             document.getElementById('mainMenu').style.display = 'none';
             document.getElementById('lobbyUI').style.display = 'flex';
-            document.getElementById('roomCodeDisplay').textContent = `ROOM CODE: ${this.roomCode}`;
+            document.getElementById('roomCodeDisplay').textContent = this.roomCode;
             this.updateLobbyDisplay();
             this.lobbyUpdateInterval = setInterval(() => this.updateLobbyDisplay(), 500);
+        }
+
+        showLevelSelect() {
+            document.getElementById('lobbyUI').style.display = 'none';
+            document.getElementById('levelCompleteUI').style.display = 'none';
+
+            const el = document.getElementById('levelSelectUI');
+            el.style.display = 'flex';
+
+            const hint = document.getElementById('levelSelectHint');
+            const cards = document.querySelectorAll('.level-card');
+
+            if (this.isHost) {
+                hint.textContent = 'Choose a dream to weave.';
+                cards.forEach(c => {
+                    c.classList.add('host-active');
+                    c.classList.remove('disabled');
+                });
+            } else {
+                hint.textContent = 'Waiting for the host to choose…';
+                cards.forEach(c => {
+                    c.classList.remove('host-active');
+                    c.classList.add('disabled');
+                });
+            }
         }
 
         async updateLobbyDisplay() {
@@ -361,7 +406,9 @@
             const res = await this.network.send({ action: "GET_LOBBY" });
             if (res?.status === "success") {
                 this.connectedPlayers = res.players;
-                document.getElementById('playerCountDisplay').textContent = `Players (${res.players.length}/4):`;
+                document.getElementById('playerCountDisplay').textContent =
+                    `dreamers (${res.players.length}/4)`;
+
                 const list = document.getElementById('playersList');
                 list.innerHTML = '';
                 for (let p of res.players) {
@@ -371,11 +418,17 @@
                     item.appendChild(dot); item.appendChild(document.createTextNode(p.name));
                     list.appendChild(item);
                 }
-                if (this.isHost)
-                    document.getElementById('startGameBtn').style.display = res.players.length > 0 ? 'block' : 'none';
-                if (!this.isHost && res.game_started) {
+
+                if (this.isHost) {
+                    document.getElementById('startGameBtn').style.display =
+                        res.players.length > 0 ? 'block' : 'none';
+                }
+
+                // Non-host: once game started, show the level select (waiting for host pick)
+                if (!this.isHost && res.game_started && this.gameState === "LOBBY") {
                     clearInterval(this.lobbyUpdateInterval);
-                    this.loadLevel(1);
+                    this.gameState = "LEVEL_SELECT";
+                    this.showLevelSelect();
                 }
             }
         }
@@ -383,6 +436,7 @@
         loadLevel(levelNum) {
             clearInterval(this.lobbyUpdateInterval);
             document.getElementById('lobbyUI').style.display = 'none';
+            document.getElementById('levelSelectUI').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'none';
 
             this.currentLevel = levelNum;
@@ -467,19 +521,16 @@
                 ));
             }
 
-            // ---- Logic Filter role cleanup ----
+            // Logic Filter role cleanup
             const lf = this.getStation("Logic Filter");
             if (lf) {
-                // Owner walked away while orb still cooking — cancel, get orb back
                 if (this.lfRole === "owner" && !lf.isHighlighted && lf.isCooking) {
                     this.lfRole = null;
                     this.sendStationUpdate({ update_type: "logic_filter_cancel" });
                 }
-                // Helper role clears when machine stops cooking
                 if (this.lfRole === "helper" && !lf.isCooking) {
                     this.lfRole = null;
                 }
-                // Owner role clears if machine is empty and idle (someone else picked up)
                 if (this.lfRole === "owner" && !lf.isCooking && !lf.heldItem) {
                     this.lfRole = null;
                     this.lfOrbInHand = null;
@@ -491,16 +542,12 @@
             const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
             if (this.player) this.player.move(dx, dy, this.stations);
 
-            // Network sync every 16ms — lf_holding piggybacked so server
-            // always knows the current hold state without relying on edge events.
+            // Network sync — lf_holding piggybacked every 16ms
             const now = Date.now();
             if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
                 this.lastSyncTime = now;
                 const lfStation = this.getStation("Logic Filter");
                 const nearLF = lfStation?.isHighlighted ?? false;
-                // True whenever this player has a role and is physically holding space near the machine.
-                // No debounce — the server only processes while holders > 0, and the server
-                // never auto-adds on place, so holding space on the same press as placement is safe.
                 const lfHolding = this.lfRole !== null && nearLF && !!this.keys[' '];
                 this.network.sendRaw({
                     action: "SYNC",
@@ -510,7 +557,7 @@
                 });
             }
 
-            // Spacebar one-shot interactions (on key-down edge)
+            // Spacebar one-shot interactions
             const spaceDown = !!this.keys[' '];
             if (spaceDown && !this.spacebarPressed) {
                 for (let s of this.stations) {
@@ -534,7 +581,6 @@
 
         handleStationInteraction(s) {
 
-            // ---- Void Siphon ----
             if (s.name === "Void Siphon" && this.player.heldItem) {
                 if (this.player.heldItem.isVessel) {
                     this.player.heldItem.bundle = [];
@@ -546,7 +592,6 @@
                 return;
             }
 
-            // ---- Crates ----
             if (s.name.includes("Crate")) {
                 if (this.player.heldItem && s.heldItem) {
                     const pItem = this.player.heldItem, sItem = s.heldItem;
@@ -579,71 +624,55 @@
                 return;
             }
 
-            // ---- Dispensers ----
             if (s.name.includes("Dispenser") && !this.player.heldItem) {
                 this.player.heldItem = new Item(s.name.split(' ')[0], STATION_COLORS[s.name]);
                 return;
             }
 
-            // ---- Vessel Return ----
             if (s.name === "Vessel Return" && !this.player.heldItem && s.vesselCount > 0) {
-                s.vesselCount--;  // optimistic
+                s.vesselCount--;
                 this.player.heldItem = new Item("Vessel", WHITE, false, true);
                 this.sendStationUpdate({ update_type: "vessel_take" });
                 return;
             }
 
-            // ---- Logic Filter ----
             if (s.name === "Logic Filter") {
-                // Case A: Machine done, anyone with empty hands can pick up the processed orb
+                // Case A: done — anyone with empty hands picks up
                 if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && !this.player.heldItem) {
-                    this.player.heldItem = deserializeItem(s.heldItem.toServerFormat
-                        ? s.heldItem.toServerFormat() : s.heldItem);
-                    // Clear whatever role this player had
+                    this.player.heldItem = deserializeItem(
+                        s.heldItem.toServerFormat ? s.heldItem.toServerFormat() : s.heldItem);
                     this.lfRole = null;
                     this.lfOrbInHand = null;
                     this.sendStationUpdate({ update_type: "logic_filter_pickup" });
                     return;
                 }
-
-                // Case B: Machine is cooking, I have no role — register as helper.
-                // lf_holding in SYNC will be true immediately on the next tick if space stays held.
+                // Case B: cooking, no role — become a helper (space held next tick contributes)
                 if (s.isCooking && this.lfRole === null) {
                     this.lfRole = "helper";
                     return;
                 }
-
-                // Case C: Machine is idle, I have an unprocessed orb — place it in
+                // Case C: idle, I have an unprocessed orb — place it
                 if (!s.isCooking && this.lfRole === null &&
                     this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
-                    // Save the orb so we can return it if rejected/cancelled
                     this.lfOrbInHand = this.player.heldItem;
-                    // Optimistic: remove from hands, show it in machine
                     this.player.heldItem = null;
                     s.heldItem = this.lfOrbInHand;
                     s.isCooking = true;
                     s.progress = 0;
                     this.lfRole = "owner";
-                    // lf_holding in SYNC will be true next tick if space stays held.
-                    // No debounce — server won't auto-process since holders starts at 0.
                     this.sendStationUpdate({
                         update_type: "logic_filter_place",
                         orb_item: this.lfOrbInHand.toServerFormat()
                     });
                     return;
                 }
-
-                // Case D: Machine is busy (someone else's orb, or I already placed)
-                // Do nothing — "IN USE" label is already shown on the station.
                 return;
             }
 
-            // ---- Dream Visualizer ----
             if (s.name === "Dream Visualizer") {
-                if (s.isCooking) return;  // busy, IN USE shown
+                if (s.isCooking) return;
 
                 if (s.heldItem) {
-                    // Pick up the finished orb — any player can do this
                     if (!this.player.heldItem) {
                         this.player.heldItem = s.heldItem;
                         s.heldItem = null;
@@ -657,7 +686,6 @@
                     return;
                 }
 
-                // Start cooking — need vessel with orbs
                 if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
                     const bundle = [...this.player.heldItem.bundle];
                     const dummy = new Item("Bundle", WHITE, true);
@@ -673,7 +701,6 @@
                 return;
             }
 
-            // ---- Gateway ----
             if (s.name === "Gateway" && this.player.heldItem) {
                 const vesselWithDish = this.player.heldItem.isVessel && this.player.heldItem.dishName;
                 const rawOrb = !this.player.heldItem.isVessel &&
@@ -707,26 +734,19 @@
             }
         }
 
-        // Called by network when server confirms logic_filter_cancel and returns the orb
         onLFCancelled(returnedOrb) {
-            if (returnedOrb) {
-                this.player.heldItem = deserializeItem(returnedOrb);
-            } else if (this.lfOrbInHand) {
-                this.player.heldItem = this.lfOrbInHand;
-            }
+            if (returnedOrb) this.player.heldItem = deserializeItem(returnedOrb);
+            else if (this.lfOrbInHand) this.player.heldItem = this.lfOrbInHand;
             this.lfRole = null;
             this.lfOrbInHand = null;
         }
 
-        // Called by network when server rejects logic_filter_place (machine was busy)
         onLFRejected() {
-            // Return the orb to the player's hand
             if (this.lfOrbInHand) {
                 this.player.heldItem = this.lfOrbInHand;
                 this.lfOrbInHand = null;
             }
             this.lfRole = null;
-            // Revert the optimistic station display — server broadcast will fix it properly
             const lf = this.getStation("Logic Filter");
             if (lf && !lf.isCooking) { lf.heldItem = null; }
         }
@@ -735,12 +755,13 @@
             document.getElementById('levelCompleteUI').style.display = 'flex';
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             document.getElementById('levelResultText').textContent =
-                stars >= 1 ? `LEVEL ${this.currentLevel} COMPLETE` : `LEVEL ${this.currentLevel} FAILED`;
-            document.getElementById('scoreDisplay').textContent = `Final Score: ${this.score}`;
-            document.getElementById('starsDisplay').textContent = [0,1,2].map(i => stars>i?'★':'☆').join('');
+                stars >= 1 ? `Dream ${this.currentLevel} Woven` : `Dream ${this.currentLevel} Faded`;
+            document.getElementById('scoreDisplay').textContent = `${this.score} dream points`;
+            document.getElementById('starsDisplay').textContent =
+                [0,1,2].map(i => stars > i ? '★' : '☆').join('');
             const canProgress = stars >= 1 && this.currentLevel < 2;
             document.getElementById('nextLevelBtn').textContent =
-                canProgress ? "NEXT LEVEL" : (stars < 1 ? "RESTART" : "GAME CLEAR!");
+                canProgress ? "Next Dream →" : (stars < 1 ? "Try Again →" : "All Dreams Woven ✦");
         }
 
         draw() {
@@ -801,11 +822,13 @@
             await game.network.connect();
             console.log('Connected to server');
 
-            game.network.onLevelLoad = (level) => game.loadLevel(level);
+            game.network.onLevelLoad = (level) => {
+                // Works for all players including host
+                game.loadLevel(level);
+            };
 
             game.network.onLFCancelled = (data) => {
                 game.onLFCancelled(data.returned_orb);
-                // Also sync full state
                 if (data.game_state?.stations) {
                     for (let s of game.stations) {
                         const srv = data.game_state.stations[s.name];
@@ -815,14 +838,11 @@
             };
 
             game.network.onRejection = (data) => {
-                if (data.reason === "logic_filter_busy") {
-                    game.onLFRejected();
-                }
+                if (data.reason === "logic_filter_busy") game.onLFRejected();
                 if (data.reason === "dream_visualizer_busy") {
                     const dv = game.getStation("Dream Visualizer");
                     if (dv) { dv.heldItem = null; dv.isCooking = false; dv.progress = 0; }
                 }
-                // Resync authoritative state
                 if (data.game_state?.stations) {
                     for (let s of game.stations) {
                         const srv = data.game_state.stations[s.name];
@@ -850,17 +870,12 @@
                     game.score = ss.score;
                     game.orders = ss.orders;
                 }
-
                 if (ss.stations) {
                     for (let station of game.stations) {
                         const srv = ss.stations[station.name];
-                        if (!srv) continue;
-
-                        // All stations always sync fully from server — single source of truth
-                        station.applyServerState(srv);
+                        if (srv) station.applyServerState(srv);
                     }
                 }
-
                 if (ss.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
