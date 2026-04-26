@@ -503,6 +503,33 @@ body {
     margin-bottom: 24px;
 }
 
+/* ── Level Complete buttons ──────────────────────── */
+.complete-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.complete-buttons .ui-btn {
+    flex: 1;
+    width: auto;
+    margin-top: 0;
+}
+
+/* Ghost button — subtle, for secondary actions */
+.btn-ghost {
+    background: var(--mist);
+    border-color: var(--border);
+    color: var(--text-dim);
+}
+.btn-ghost:hover {
+    background: var(--mist2);
+    border-color: rgba(180,160,255,0.35);
+    color: var(--text);
+    box-shadow: 0 0 16px rgba(180,160,255,0.1);
+    transform: translateY(-1px);
+}
+
 /* ── Responsive ───────────────────────────────── */
 @media (max-width: 1024px) {
     #gameContainer {

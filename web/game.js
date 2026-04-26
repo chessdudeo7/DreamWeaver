@@ -294,6 +294,7 @@
             });
             document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
             document.getElementById('nextLevelBtn').addEventListener('click', () => this.nextLevel());
+            document.getElementById('mainMenuBtn').addEventListener('click', () => this.goToMainMenu());
 
             document.getElementById('playerName').addEventListener('input', (e) => {
                 this.playerName = e.target.value.substring(0, 12);
@@ -354,15 +355,37 @@
             }
         }
 
-        // Used by the "Next Level" button on the level-complete screen
+        // "Main menu" button — returns everyone to the dream atlas (level select)
+        async goToMainMenu() {
+            if (!this.isHost) return;
+            // Tell server game is still in "PLAYING" state so we just show level select locally.
+            // Broadcast a level_select signal so all players return to the atlas screen.
+            if (this.network.connected) {
+                await this.network.send({ action: "LOAD_LEVEL", level: 0 });
+            } else {
+                this.showLevelSelect();
+            }
+        }
+
+        // "Next level" / "Retry" button on the level-complete screen
         async nextLevel() {
             if (!this.isHost) return;
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
-            const next = (stars >= 1 && this.currentLevel < 2) ? 2 : this.currentLevel;
-            if (this.network.connected) {
-                await this.network.send({ action: "LOAD_LEVEL", level: next });
+            const passed = stars >= 1;
+            let target;
+            if (!passed) {
+                target = this.currentLevel;           // retry same level
+            } else if (this.currentLevel < 2) {
+                target = this.currentLevel + 1;       // advance to next
             } else {
-                this.loadLevel(next);
+                // Last level cleared — go back to atlas
+                this.goToMainMenu();
+                return;
+            }
+            if (this.network.connected) {
+                await this.network.send({ action: "LOAD_LEVEL", level: target });
+            } else {
+                this.loadLevel(target);
             }
         }
 
@@ -405,18 +428,24 @@
             if (!this.network.connected) return;
             const res = await this.network.send({ action: "GET_LOBBY" });
             if (res?.status === "success") {
+                const prevCount = this.connectedPlayers.length;
                 this.connectedPlayers = res.players;
+
                 document.getElementById('playerCountDisplay').textContent =
                     `dreamers (${res.players.length}/4)`;
 
-                const list = document.getElementById('playersList');
-                list.innerHTML = '';
-                for (let p of res.players) {
-                    const item = document.createElement('div'); item.className = 'player-item';
-                    const dot = document.createElement('div'); dot.className = 'player-color-dot';
-                    dot.style.backgroundColor = `rgb(${p.color[0]},${p.color[1]},${p.color[2]})`;
-                    item.appendChild(dot); item.appendChild(document.createTextNode(p.name));
-                    list.appendChild(item);
+                // Only rebuild the list when the player count actually changes,
+                // preventing the fade-in animation from re-triggering every 500ms.
+                if (res.players.length !== prevCount) {
+                    const list = document.getElementById('playersList');
+                    list.innerHTML = '';
+                    for (let p of res.players) {
+                        const item = document.createElement('div'); item.className = 'player-item';
+                        const dot = document.createElement('div'); dot.className = 'player-color-dot';
+                        dot.style.backgroundColor = `rgb(${p.color[0]},${p.color[1]},${p.color[2]})`;
+                        item.appendChild(dot); item.appendChild(document.createTextNode(p.name));
+                        list.appendChild(item);
+                    }
                 }
 
                 if (this.isHost) {
@@ -754,14 +783,28 @@
         showLevelComplete() {
             document.getElementById('levelCompleteUI').style.display = 'flex';
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
+            const passed = stars >= 1;
+
             document.getElementById('levelResultText').textContent =
-                stars >= 1 ? `Dream ${this.currentLevel} Woven` : `Dream ${this.currentLevel} Faded`;
+                passed ? `Dream ${this.currentLevel} Woven` : `Dream ${this.currentLevel} Faded`;
             document.getElementById('scoreDisplay').textContent = `${this.score} dream points`;
             document.getElementById('starsDisplay').textContent =
                 [0,1,2].map(i => stars > i ? '★' : '☆').join('');
-            const canProgress = stars >= 1 && this.currentLevel < 2;
-            document.getElementById('nextLevelBtn').textContent =
-                canProgress ? "Next Dream →" : (stars < 1 ? "Try Again →" : "All Dreams Woven ✦");
+
+            // Right button: next level (if passed and more levels exist) or retry
+            const nextBtn = document.getElementById('nextLevelBtn');
+            if (passed && this.currentLevel < 2) {
+                nextBtn.textContent = 'Next Dream →';
+                nextBtn.style.display = '';
+            } else if (passed) {
+                // Completed the last level
+                nextBtn.textContent = 'All Dreams Woven ✦';
+                nextBtn.style.display = '';
+            } else {
+                // Failed — show retry
+                nextBtn.textContent = 'Retry Dream →';
+                nextBtn.style.display = '';
+            }
         }
 
         draw() {
@@ -823,8 +866,14 @@
             console.log('Connected to server');
 
             game.network.onLevelLoad = (level) => {
-                // Works for all players including host
-                game.loadLevel(level);
+                if (level === 0) {
+                    // Return to dream atlas (level select) for all players
+                    document.getElementById('levelCompleteUI').style.display = 'none';
+                    game.gameState = "LEVEL_SELECT";
+                    game.showLevelSelect();
+                } else {
+                    game.loadLevel(level);
+                }
             };
 
             game.network.onLFCancelled = (data) => {

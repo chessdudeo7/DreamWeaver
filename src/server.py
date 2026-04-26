@@ -323,6 +323,20 @@ async def handle_client(websocket):
             elif action == "LOAD_LEVEL":
                 if current_room and current_room in rooms:
                     level = request.get("level", 1)
+                    if level == 0:
+                        # level 0 = return to dream atlas (level select screen)
+                        # Don't create a GameState; just broadcast so all clients show level select.
+                        if current_room in room_connections:
+                            msg = json.dumps({"status": "level_load", "level": 0})
+                            disconnected = []
+                            for conn in room_connections[current_room]:
+                                try:
+                                    await conn.send(msg)
+                                except websockets.exceptions.ConnectionClosed:
+                                    disconnected.append(conn)
+                            for conn in disconnected:
+                                room_connections[current_room].remove(conn)
+                        continue
                     rooms[current_room]["game_state"] = GameState(level)
                     # Broadcast level_load to ALL players so everyone enters the game together
                     if current_room in room_connections:
