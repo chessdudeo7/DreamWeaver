@@ -35,6 +35,70 @@ client_to_room = {}
 room_connections = {}
 
 
+class TutorialState:
+    """Tracks synced tutorial progress for a room."""
+    TOTAL_STEPS = 20  # indices 0-19
+
+    # Steps where ok=True (all players must confirm before advancing)
+    OK_STEPS = {0, 1, 3, 7, 9, 11, 15, 17, 19}
+
+    # Map of action key -> which step it advances from
+    ACTION_MAP = {
+        "orb_picked":  2,
+        "lf_placed":   4,
+        "lf_done":     5,
+        "lf_pickup":   6,
+        "vessel_1":    8,
+        "vessel_2":    10,
+        "dv_start":    12,
+        "dv_done":     13,
+        "vessel_dish": 14,
+        "delivery_1":  16,
+        "delivery_2":  18,
+    }
+
+    def __init__(self, player_ids):
+        self.step = 0
+        self.confirmed = set()   # player_ids who clicked OK on current step
+        self.player_ids = set(player_ids)
+        self.complete = False
+
+    def to_dict(self):
+        return {
+            "step":      self.step,
+            "confirmed": list(self.confirmed),
+            "complete":  self.complete,
+        }
+
+    def all_confirmed(self):
+        return self.player_ids <= self.confirmed
+
+    def try_ok(self, client_id):
+        """Player clicked OK. Returns True if all confirmed and we should advance."""
+        if self.step not in self.OK_STEPS:
+            return False
+        self.confirmed.add(client_id)
+        if self.all_confirmed():
+            self._advance()
+            return True
+        return False  # partial — broadcast updated confirmed list
+
+    def try_action(self, key):
+        """Any player completed an action. Returns True if step advanced."""
+        expected = self.ACTION_MAP.get(key)
+        if expected is None or expected != self.step:
+            return False
+        self._advance()
+        return True
+
+    def _advance(self):
+        self.confirmed = set()
+        self.step += 1
+        if self.step >= self.TOTAL_STEPS:
+            self.complete = True
+            self.step = self.TOTAL_STEPS - 1
+
+
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
 
@@ -230,8 +294,8 @@ class GameState:
             if lf:
                 lf["active_holders"] = 0
 
-    def to_dict(self):
-        return {
+    def to_dict(self, tutorial_state=None):
+        d = {
             "state": self.state,
             "score": self.score,
             "game_timer": max(0, self.game_timer),
@@ -241,6 +305,9 @@ class GameState:
             "station_locks": self.station_locks,
             "logic_filter_holders": len(self.logic_filter_holders),
         }
+        if tutorial_state is not None:
+            d["tutorial"] = tutorial_state.to_dict()
+        return d
 
 
 async def broadcast_room(current_room, rooms, room_connections):
@@ -249,10 +316,11 @@ async def broadcast_room(current_room, rooms, room_connections):
     gs = rooms[current_room].get("game_state")
     if not gs:
         return
+    ts = rooms[current_room].get("tutorial_state")
     msg = json.dumps({
         "status": "success",
         "players": list(rooms[current_room]["players_dict"].values()),
-        "game_state": gs.to_dict()
+        "game_state": gs.to_dict(ts)
     })
     disconnected = []
     for conn in room_connections[current_room]:
@@ -284,6 +352,7 @@ async def handle_client(websocket):
                     "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}],
                     "state": "LOBBY",
                     "game_state": None,
+                    "tutorial_state": None,
                     "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
                 }
                 room_connections[code] = [websocket]
@@ -382,7 +451,7 @@ async def handle_client(websocket):
                             msg = json.dumps({
                                 "status": "success",
                                 "players": list(rooms[current_room]["players_dict"].values()),
-                                "game_state": game_state.to_dict()
+                                "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
                             })
                             disconnected = []
                             for conn in room_connections[current_room]:
@@ -423,7 +492,7 @@ async def handle_client(websocket):
                                     await websocket.send(make_response({
                                         "status": "rejected",
                                         "reason": "logic_filter_busy",
-                                        "game_state": game_state.to_dict(),
+                                        "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
                                         "players": list(rooms[current_room]["players_dict"].values())
                                     }, rid))
                                     continue
@@ -431,7 +500,7 @@ async def handle_client(websocket):
                                 await websocket.send(make_response({
                                     "status": "rejected",
                                     "reason": "logic_filter_busy",
-                                    "game_state": game_state.to_dict(),
+                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
                                     "players": list(rooms[current_room]["players_dict"].values())
                                 }, rid))
                                 continue
@@ -449,7 +518,7 @@ async def handle_client(websocket):
                                 await websocket.send(make_response({
                                     "status": "logic_filter_cancelled",
                                     "returned_orb": orb,
-                                    "game_state": game_state.to_dict(),
+                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
                                     "players": list(rooms[current_room]["players_dict"].values())
                                 }, rid))
                                 await broadcast_room(current_room, rooms, room_connections)
@@ -482,7 +551,7 @@ async def handle_client(websocket):
                                     await websocket.send(make_response({
                                         "status": "rejected",
                                         "reason": "dream_visualizer_busy",
-                                        "game_state": game_state.to_dict(),
+                                        "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
                                         "players": list(rooms[current_room]["players_dict"].values())
                                     }, rid))
                                     continue
@@ -507,7 +576,7 @@ async def handle_client(websocket):
                                 msg = json.dumps({
                                     "status": "success",
                                     "players": list(rooms[current_room]["players_dict"].values()),
-                                    "game_state": game_state.to_dict()
+                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
                                 })
                                 disconnected = []
                                 for conn in room_connections[current_room]:
@@ -518,6 +587,35 @@ async def handle_client(websocket):
                                 for conn in disconnected:
                                     room_connections[current_room].remove(conn)
                             continue
+
+            elif action == "TUTORIAL_START":
+                # Host starts the tutorial — initialise TutorialState for the room
+                if current_room and current_room in rooms:
+                    player_ids = list(rooms[current_room]["players_dict"].keys())
+                    rooms[current_room]["tutorial_state"] = TutorialState(player_ids)
+                    await broadcast_room(current_room, rooms, room_connections)
+                continue
+
+            elif action == "TUTORIAL_OK":
+                # A player confirmed the current OK step
+                if current_room and current_room in rooms:
+                    ts = rooms[current_room].get("tutorial_state")
+                    gs = rooms[current_room].get("game_state")
+                    if ts and gs:
+                        ts.try_ok(client_id)   # advances internally when all confirmed
+                        await broadcast_room(current_room, rooms, room_connections)
+                continue
+
+            elif action == "TUTORIAL_ACTION":
+                # Any player completed a tutorial action
+                if current_room and current_room in rooms:
+                    ts = rooms[current_room].get("tutorial_state")
+                    gs = rooms[current_room].get("game_state")
+                    if ts and gs:
+                        key = request.get("key", "")
+                        ts.try_action(key)
+                        await broadcast_room(current_room, rooms, room_connections)
+                continue
 
             elif action == "DELIVER":
                 if current_room and current_room in rooms:
@@ -540,7 +638,7 @@ async def handle_client(websocket):
                             msg = json.dumps({
                                 "status": "success",
                                 "players": list(rooms[current_room]["players_dict"].values()),
-                                "game_state": game_state.to_dict()
+                                "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
                             })
                             disconnected = []
                             for conn in room_connections[current_room]:

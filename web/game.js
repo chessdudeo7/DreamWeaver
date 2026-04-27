@@ -291,12 +291,10 @@
             this.lfOrbInHand = null;  // saved orb to return if cancelled/rejected
 
             // Tutorial state
-            this.isTutorial = false;
-            this.tutStep = 0;        // current step index
-            this.tutWaiting = false; // true = waiting for player action (not OK click)
-            this.tutFirstOrbDone = false;  // tracks when first orb is on vessel
-            this.tutVesselInDV = false;    // tracks when vessel put in Dream Visualizer
-            this.tutDelivered = false;     // tracks final delivery
+            this.isTutorial   = false;
+            this.tutStep      = 0;
+            this.tutWaiting   = false;   // true = action step, player can move
+            this.tutMoveLocked = false;  // true = OK step, movement blocked
 
             this.setupEventListeners();
         }
@@ -347,9 +345,9 @@
                 });
             });
 
-            // Tutorial OK button
+            // Tutorial OK button — tells server this player confirmed
             document.getElementById('tutOkBtn').addEventListener('click', () => {
-                this.tutAdvance();
+                this.tutClickOk();
             });
         }
 
@@ -528,8 +526,7 @@
             this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
             this.lfRole = null; this.lfOrbInHand = null;
             // Reset tutorial state
-            this.tutStep = 0; this.tutWaiting = false;
-            this.tutFirstOrbDone = false; this.tutVesselInDV = false; this.tutDelivered = false;
+            this.tutStep = 0; this.tutWaiting = false; this.tutMoveLocked = false;
 
             // Tutorial uses level 1 layout
             if (levelNum === 'tutorial' || levelNum === 1) {
@@ -563,10 +560,20 @@
             }
 
             if (this.isTutorial) {
-                // Fixed tutorial order: Joyful Slumber (Gold + Sky Blue)
-                this.orders = [{ name: "Joyful Slumber", time: Infinity, max: Infinity, recipe: RECIPES["Joyful Slumber"] }];
-                // Start tutorial after a short delay so the game renders first
-                setTimeout(() => this.tutShowStep(0), 400);
+                // Guided order: Deep Calm (Blue + Blue), plus one random second order
+                const secondName = "Joyful Slumber"; // always same for consistency
+                this.orders = [
+                    { name: "Deep Calm",    time: Infinity, max: Infinity, recipe: RECIPES["Deep Calm"] },
+                    { name: secondName,     time: Infinity, max: Infinity, recipe: RECIPES[secondName] },
+                ];
+                // Start tutorial — server will broadcast step 0
+                if (this.isHost) {
+                    setTimeout(() => {
+                        if (this.network.connected && this.network.ws) {
+                            this.network.ws.send(JSON.stringify({ action: "TUTORIAL_START" }));
+                        }
+                    }, 400);
+                }
             } else {
                 for (let i = 0; i < 3; i++) this.addOrder();
             }
@@ -626,9 +633,10 @@
                 }
             }
 
-            // Player movement
-            const dx = (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
-            const dy = (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
+            // Player movement — locked during tutorial OK steps
+            const moveLocked = this.isTutorial && this.tutMoveLocked;
+            const dx = moveLocked ? 0 : (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
+            const dy = moveLocked ? 0 : (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
             if (this.player) this.player.move(dx, dy, this.stations);
 
             // Network sync — lf_holding piggybacked every 16ms
@@ -646,9 +654,9 @@
                 });
             }
 
-            // Spacebar one-shot interactions
+            // Spacebar one-shot interactions — locked during tutorial OK steps
             const spaceDown = !!this.keys[' '];
-            if (spaceDown && !this.spacebarPressed) {
+            if (spaceDown && !this.spacebarPressed && !(this.isTutorial && this.tutMoveLocked)) {
                 for (let s of this.stations) {
                     if (s.isHighlighted) this.handleStationInteraction(s);
                 }
@@ -840,197 +848,180 @@
             if (lf && !lf.isCooking) { lf.heldItem = null; }
         }
 
-        // ── TUTORIAL SYSTEM ───────────────────────────────────────────────────
+        // ── TUTORIAL SYSTEM ─────────────────────────────────────────────────
+        // Steps alternate:
+        //   ok:true  → movement LOCKED, all players must click OK before continuing
+        //   ok:false → movement FREE, advances when ANY player completes the action
+        //
+        // Guided order: Deep Calm (Blue + Blue). Second order is solo (random).
 
-        // All tutorial steps. Each has:
-        //   text:    string shown in the dialog
-        //   ok:      true = show OK button (player reads then continues)
-        //            false = wait for player action (tutCheckAction advances)
-        //   target:  station name to point arrow at (null = no arrow)
         tutSteps() {
             return [
-                // 0
-                { text: "Welcome to Dreamweaver! You weave dreams from coloured orbs. Let\'s walk through it together.", ok: true, target: null },
-                // 1
-                { text: "Step 1 — Pick up a Happy orb. Head to the golden Happy Dispenser in the top-left.", ok: true, target: "Happy Dispenser" },
-                // 2  (wait: player picks up a Happy orb)
-                { text: "Press SPACE near the Happy Dispenser to pick up a golden orb.", ok: false, target: "Happy Dispenser" },
-                // 3
-                { text: "Great! Now bring the orb to the Logic Filter on the right and press SPACE to place it inside.", ok: true, target: "Logic Filter" },
-                // 4  (wait: player places orb in Logic Filter)
-                { text: "Press SPACE near the Logic Filter to place the orb in.", ok: false, target: "Logic Filter" },
-                // 5  (wait: player holds space to process)
-                { text: "Now hold SPACE to process the orb. Keep holding until the bar fills completely!", ok: false, target: "Logic Filter" },
-                // 6  (wait: player picks up processed orb)
+                // 0 — intro, OK
+                { text: "Welcome to Dreamweaver! You weave dreams from coloured orbs. This tutorial will guide you through making a Deep Calm dream — two blue orbs.", ok: true, target: null },
+                // 1 — OK, point at Calm Dispenser
+                { text: "First, pick up a blue orb from the Calm Dispenser (top row, second from left).", ok: true, target: "Calm Dispenser" },
+                // 2 — ACTION: any player picks up a Calm orb
+                { text: "Press SPACE near the Calm Dispenser to pick up a blue orb.", ok: false, target: "Calm Dispenser" },
+                // 3 — OK, point at Logic Filter
+                { text: "Now bring the orb to the Logic Filter (top-right) and press SPACE to place it inside.", ok: true, target: "Logic Filter" },
+                // 4 — ACTION: orb placed in Logic Filter
+                { text: "Press SPACE near the Logic Filter to place the orb inside.", ok: false, target: "Logic Filter" },
+                // 5 — ACTION: hold space until processed
+                { text: "Hold SPACE near the Logic Filter to process the orb. Keep holding until the bar is completely full!", ok: false, target: "Logic Filter" },
+                // 6 — ACTION: pick up processed orb
                 { text: "The orb is processed! Press SPACE near the Logic Filter to pick it up.", ok: false, target: "Logic Filter" },
-                // 7
-                { text: "Now pick up a Vessel from one of the brown Crates in the middle, then press SPACE on the crate with the orb in hand to load it.", ok: true, target: "Crate 1" },
-                // 8  (wait: player loads processed orb onto vessel)
-                { text: "Pick up a Vessel from the crate and load the processed orb onto it by pressing SPACE on the crate.", ok: false, target: "Crate 1" },
-                // 9
-                { text: "One orb down! Now do it again — pick up a Calm (blue) orb from the Calm Dispenser and process it the same way.", ok: true, target: "Calm Dispenser" },
-                // 10  (wait: second processed orb loaded onto vessel)
-                { text: "Process the blue orb through the Logic Filter, then load it onto the same vessel.", ok: false, target: "Calm Dispenser" },
-                // 11
-                { text: "The vessel has both orbs! Take it to the Dream Visualizer at the bottom and press SPACE to start cooking.", ok: true, target: "Dream Visualizer" },
-                // 12  (wait: vessel placed in Dream Visualizer)
-                { text: "Press SPACE near the Dream Visualizer with the vessel to begin cooking.", ok: false, target: "Dream Visualizer" },
-                // 13  (wait: cooking finishes)
-                { text: "The Dream Visualizer is working its magic… wait for the bar to fill.", ok: false, target: "Dream Visualizer" },
-                // 14  (wait: player picks up finished orb and puts on vessel)
-                { text: "The dream orb is ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
-                // 15
-                { text: "Almost there! Bring the vessel to the Gateway on the left and press SPACE to deliver the dream.", ok: true, target: "Gateway" },
-                // 16  (wait: delivery)
-                { text: "Press SPACE at the Gateway to deliver Joyful Slumber!", ok: false, target: "Gateway" },
-                // 17  (final)
-                { text: "You did it! You\'ve woven your first dream. Now go weave something wonderful. ✦", ok: true, target: null },
+                // 7 — OK, point at Crate 1
+                { text: "Now pick up a Vessel from one of the brown Crates. While holding the vessel, press SPACE on a crate that has the processed orb to load it.", ok: true, target: "Crate 1" },
+                // 8 — ACTION: any vessel has bundle.length >= 1
+                { text: "Pick up a Vessel from a crate, then press SPACE near a crate with the orb to load it.", ok: false, target: "Crate 1" },
+                // 9 — OK, point at Calm Dispenser
+                { text: "One blue orb loaded! Now process a second blue orb the same way — pick it up from the Calm Dispenser, process it at the Logic Filter, and load it onto the same vessel.", ok: true, target: "Calm Dispenser" },
+                // 10 — ACTION: any vessel has bundle.length >= 2
+                { text: "Process the second blue orb and load it onto the same vessel.", ok: false, target: "Calm Dispenser" },
+                // 11 — OK, point at Dream Visualizer
+                { text: "Both orbs loaded! Take the vessel to the Dream Visualizer (bottom centre) and press SPACE to cook the dream.", ok: true, target: "Dream Visualizer" },
+                // 12 — ACTION: DV starts cooking
+                { text: "Press SPACE near the Dream Visualizer while holding the vessel to start cooking.", ok: false, target: "Dream Visualizer" },
+                // 13 — ACTION: DV finishes
+                { text: "The Dream Visualizer is working its magic — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
+                // 14 — ACTION: any vessel with dishName exists
+                { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
+                // 15 — OK, point at Gateway
+                { text: "Almost there! Bring the vessel to the Gateway (bottom-left) and press SPACE to deliver the Deep Calm dream.", ok: true, target: "Gateway" },
+                // 16 — ACTION: first order delivered
+                { text: "Press SPACE at the Gateway to deliver Deep Calm!", ok: false, target: "Gateway" },
+                // 17 — OK, no target
+                { text: "Great work! You have one more order to deliver on your own. Check the order board at the top and complete it — you know what to do!", ok: true, target: null },
+                // 18 — ACTION: all orders gone (second delivery)
+                { text: "Complete the second order yourself. Use everything you just learned!", ok: false, target: null },
+                // 19 — final OK
+                { text: "You did it! You are now a Dreamweaver. Go weave something wonderful. ✦", ok: true, target: null },
             ];
         }
 
-        tutShowStep(idx) {
+        // Called by server broadcast to sync tutorial state to all clients
+        tutApplyState(state) {
+            if (!this.isTutorial) return;
             const steps = this.tutSteps();
+            const idx   = state.step;
             if (idx >= steps.length) return;
-            this.tutStep = idx;
-            const step = steps[idx];
 
+            this.tutStep      = idx;
+            const step        = steps[idx];
+            this.tutMoveLocked = step.ok;
+            this.tutWaiting   = !step.ok;
+
+            // Update dialog
             const dlg = document.getElementById('tutorialDialog');
             dlg.style.display = 'block';
-            document.getElementById('tutStepLabel').textContent = `step ${idx + 1} of ${steps.length}`;
-            document.getElementById('tutText').textContent = step.text.replace(/\\/g, '');
-            document.getElementById('tutOkBtn').style.display = step.ok ? 'block' : 'none';
+            document.getElementById('tutStepLabel').textContent =
+                `step ${idx + 1} of ${steps.length}`;
+            document.getElementById('tutText').textContent = step.text;
 
-            this.tutWaiting = !step.ok;
+            const okBtn = document.getElementById('tutOkBtn');
+            if (!step.ok) {
+                okBtn.style.display = 'none';
+            } else {
+                okBtn.style.display  = 'block';
+                const confirmed      = state.confirmed || [];
+                const iConfirmed     = confirmed.includes(this.myId);
+                okBtn.textContent    = iConfirmed ? 'Waiting for others…' : 'OK';
+                okBtn.disabled       = iConfirmed;
+            }
+
             this.tutShowArrow(step.target);
+
+            // Final step fully confirmed — show level complete
+            if (state.complete) {
+                document.getElementById('tutorialDialog').style.display = 'none';
+                document.getElementById('tutArrow').style.display = 'none';
+                this.gameState = "LEVEL_COMPLETE";
+                this.showLevelComplete();
+            }
         }
 
         tutShowArrow(stationName) {
             const arrow = document.getElementById('tutArrow');
             if (!stationName) { arrow.style.display = 'none'; return; }
-
             const station = this.getStation(stationName);
-            if (!station) { arrow.style.display = 'none'; return; }
-
-            // Convert canvas station coords to screen coords
-            const canvas = this.canvas;
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = rect.width / WIDTH;
+            if (!station)    { arrow.style.display = 'none'; return; }
+            const rect   = this.canvas.getBoundingClientRect();
+            const scaleX = rect.width  / WIDTH;
             const scaleY = rect.height / HEIGHT;
-
             const sx = rect.left + (station.x + station.w / 2) * scaleX;
-            // Arrow tip points down, position it above the station
-            const sy = rect.top + station.y * scaleY - 72;
-
+            const sy = rect.top  +  station.y * scaleY - 72;
             arrow.style.display = 'block';
-            arrow.style.left = (sx - 20) + 'px';
-            arrow.style.top = sy + 'px';
+            arrow.style.left    = (sx - 20) + 'px';
+            arrow.style.top     =  sy       + 'px';
         }
 
-        tutAdvance() {
-            // OK button clicked — move to next step
-            const steps = this.tutSteps();
-            const next = this.tutStep + 1;
-            if (next >= steps.length) {
-                // Final step OK — show level complete
-                document.getElementById('tutorialDialog').style.display = 'none';
-                this.gameState = "LEVEL_COMPLETE";
-                this.showLevelComplete();
-                return;
-            }
-            this.tutShowStep(next);
+        tutClickOk() {
+            if (!this.network.connected || !this.network.ws) return;
+            const okBtn          = document.getElementById('tutOkBtn');
+            okBtn.textContent    = 'Waiting for others…';
+            okBtn.disabled       = true;
+            try { this.network.ws.send(JSON.stringify({ action: "TUTORIAL_OK" })); } catch(e) {}
         }
 
-        tutHide() {
-            document.getElementById('tutorialDialog').style.display = 'none';
-            document.getElementById('tutArrow').style.display = 'none';
-            this.tutWaiting = false;
+        tutSendAction(key) {
+            if (!this.network.connected || !this.network.ws) return;
+            try { this.network.ws.send(JSON.stringify({ action: "TUTORIAL_ACTION", key })); } catch(e) {}
         }
 
+        // Called every frame during action steps — detects completion by ANY player
         tutCheckAction() {
-            // Called every frame while tutWaiting = true.
-            // Detects player actions and advances the step when they complete it.
             const step = this.tutStep;
-            const p = this.player;
-            if (!p) return;
+            const lf   = this.getStation("Logic Filter");
+            const dv   = this.getStation("Dream Visualizer");
+            const c1   = this.getStation("Crate 1");
+            const c2   = this.getStation("Crate 2");
+            const c3   = this.getStation("Crate 3");
+            const all  = Object.values(this.playersDict);
 
-            const held = p.heldItem;
-            const lf = this.getStation("Logic Filter");
-            const dv = this.getStation("Dream Visualizer");
-            const crate1 = this.getStation("Crate 1");
-            const crate2 = this.getStation("Crate 2");
-            const crate3 = this.getStation("Crate 3");
+            const anyHolds      = pred => all.some(pl => pl.heldItem && pred(pl.heldItem));
+            const anyVesselBund = n    => [c1,c2,c3].some(c => c?.heldItem?.isVessel && c.heldItem.bundle.length >= n)
+                                       || all.some(pl => pl.heldItem?.isVessel && pl.heldItem.bundle.length >= n);
+            const anyVesselDish = ()   => all.some(pl => pl.heldItem?.isVessel && pl.heldItem.dishName)
+                                       || [c1,c2,c3].some(c => c?.heldItem?.isVessel && c.heldItem.dishName);
 
-            // Helper: does any crate hold a vessel with bundle.length >= n?
-            const crateVesselBundles = () => [crate1,crate2,crate3]
-                .filter(c => c?.heldItem?.isVessel)
-                .map(c => c.heldItem.bundle.length);
-
-            if (step === 2) {
-                // Wait: player picks up a Happy orb (gold, not vessel, not processed)
-                if (held && !held.isVessel && !held.isProcessed && held.name === "Happy") {
-                    this.tutShowStep(3);
-                }
-            } else if (step === 4) {
-                // Wait: player places orb in Logic Filter (lf has held_item and is_cooking)
-                if (lf && lf.isCooking && lf.heldItem) {
-                    this.tutShowStep(5);
-                }
-            } else if (step === 5) {
-                // Wait: Logic Filter finishes processing
-                if (lf && !lf.isCooking && lf.heldItem && lf.heldItem.isProcessed) {
-                    this.tutShowStep(6);
-                }
-            } else if (step === 6) {
-                // Wait: player picks up processed orb from LF
-                if (held && held.isProcessed && !held.isVessel) {
-                    this.tutShowStep(7);
-                }
-            } else if (step === 8) {
-                // Wait: a vessel in any crate has bundle.length >= 1
-                if (crateVesselBundles().some(n => n >= 1)) {
-                    this.tutFirstOrbDone = true;
-                    this.tutShowStep(9);
-                }
-                // Also: player holding vessel with bundle >= 1
-                if (held?.isVessel && held.bundle.length >= 1) {
-                    this.tutFirstOrbDone = true;
-                    this.tutShowStep(9);
-                }
-            } else if (step === 10) {
-                // Wait: a vessel anywhere has bundle.length >= 2 or dishName set
-                const vesselFull =
-                    [crate1,crate2,crate3].some(c => c?.heldItem?.isVessel && (c.heldItem.bundle.length >= 2 || c.heldItem.dishName)) ||
-                    (held?.isVessel && (held.bundle.length >= 2 || held.dishName));
-                if (vesselFull) {
-                    this.tutShowStep(11);
-                }
-            } else if (step === 12) {
-                // Wait: vessel placed in Dream Visualizer (dv cooking)
-                if (dv && dv.isCooking) {
-                    this.tutVesselInDV = true;
-                    this.tutShowStep(13);
-                }
-            } else if (step === 13) {
-                // Wait: Dream Visualizer finishes (has result item, not cooking)
-                if (dv && !dv.isCooking && dv.heldItem && dv.heldItem.isProcessed) {
-                    this.tutShowStep(14);
-                }
-            } else if (step === 14) {
-                // Wait: player has a vessel with a dishName (ready to deliver)
-                const readyVessel =
-                    (held?.isVessel && held.dishName) ||
-                    [crate1,crate2,crate3].some(c => c?.heldItem?.isVessel && c.heldItem.dishName);
-                if (readyVessel) {
-                    this.tutShowStep(15);
-                }
-            } else if (step === 16) {
-                // Wait: score goes up (delivery detected) or orders array is empty
-                if (this.orders.length === 0 || this.score > 0) {
-                    this.tutDelivered = true;
-                    this.tutShowStep(17);
-                }
+            switch (step) {
+                case 2:
+                    if (anyHolds(h => !h.isVessel && !h.isProcessed && h.name === "Calm"))
+                        this.tutSendAction("orb_picked"); break;
+                case 4:
+                    if (lf?.isCooking && lf.heldItem)
+                        this.tutSendAction("lf_placed"); break;
+                case 5:
+                    if (lf && !lf.isCooking && lf.heldItem?.isProcessed)
+                        this.tutSendAction("lf_done"); break;
+                case 6:
+                    if (anyHolds(h => h.isProcessed && !h.isVessel))
+                        this.tutSendAction("lf_pickup"); break;
+                case 8:
+                    if (anyVesselBund(1))
+                        this.tutSendAction("vessel_1"); break;
+                case 10:
+                    if (anyVesselBund(2))
+                        this.tutSendAction("vessel_2"); break;
+                case 12:
+                    if (dv?.isCooking)
+                        this.tutSendAction("dv_start"); break;
+                case 13:
+                    if (dv && !dv.isCooking && dv.heldItem?.isProcessed)
+                        this.tutSendAction("dv_done"); break;
+                case 14:
+                    if (anyVesselDish())
+                        this.tutSendAction("vessel_dish"); break;
+                case 16:
+                    if (this.score > 0 || this.orders.length < 2)
+                        this.tutSendAction("delivery_1"); break;
+                case 18:
+                    if (this.orders.length === 0)
+                        this.tutSendAction("delivery_2"); break;
             }
         }
+
 
                 showLevelComplete() {
             document.getElementById('tutorialDialog').style.display = 'none';
@@ -1198,6 +1189,11 @@
                         if (srv) station.applyServerState(srv);
                     }
                 }
+                // Tutorial state sync — applies to all players
+                if (ss.tutorial) {
+                    game.tutApplyState(ss.tutorial);
+                }
+
                 if (ss.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING") {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();
