@@ -32,10 +32,10 @@
     <div id="mainMenu" class="ui-overlay">
         <div class="ui-panel main-panel">
             <div class="title-block">
-                <div class="title-eyebrow">A Cooperative Dream</div>
+                <div class="title-eyebrow">a cooperative dream</div>
                 <h1 class="game-title">Dreamweaver</h1>
                 <div class="title-rule"></div>
-                <p class="title-sub">Craft Dreams Together</p>
+                <p class="title-sub">craft dreams together</p>
             </div>
             <div class="form-block">
                 <input id="playerName" type="text" placeholder="your dreamer name" maxlength="12" class="ui-input">
@@ -73,6 +73,23 @@
             <p class="level-select-hint" id="levelSelectHint">Only the host may choose.</p>
             <div class="level-grid">
 
+                <div class="level-card" data-level="tutorial">
+                    <div class="level-card-glow"></div>
+                    <div class="level-card-orbs">
+                        <span class="lc-orb" style="--c:0,255,200;  --lx:15%; --ly:40%"></span>
+                        <span class="lc-orb" style="--c:255,215,0;  --lx:70%; --ly:60%"></span>
+                    </div>
+                    <div class="level-card-content">
+                        <div class="level-number" style="font-size:1.6rem;letter-spacing:0.08em;font-style:normal;">✦</div>
+                        <div class="level-name">The First Weave</div>
+                        <div class="level-desc">A gentle introduction.<br>No rush. Just learn.</div>
+                        <div class="level-footer">
+                            <div class="level-stars" data-level="tutorial">☆</div>
+                            <div class="level-tag">tutorial</div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="level-card" data-level="1">
                     <div class="level-card-glow"></div>
                     <div class="level-card-orbs">
@@ -83,10 +100,8 @@
                         <div class="level-number">I</div>
                         <div class="level-name">The First Dream</div>
                         <div class="level-desc">Learn the art of weaving.<br>Two orbs, one vision.</div>
-                        <div class="level-recipes">
-                            <span class="recipe-dot" style="background:rgb(255,215,0)"></span>
-                            <span class="recipe-dot" style="background:rgb(0,191,255)"></span>
-                            <span class="recipe-dot" style="background:rgb(255,140,0)"></span>
+                        <div class="level-footer">
+                            <div class="level-stars" data-level="1">☆☆☆</div>
                         </div>
                     </div>
                 </div>
@@ -102,10 +117,8 @@
                         <div class="level-number">II</div>
                         <div class="level-name">The Deep Sleep</div>
                         <div class="level-desc">The stations shift.<br>The pressure rises.</div>
-                        <div class="level-recipes">
-                            <span class="recipe-dot" style="background:rgb(180,70,255)"></span>
-                            <span class="recipe-dot" style="background:rgb(255,140,0)"></span>
-                            <span class="recipe-dot" style="background:rgb(0,255,200)"></span>
+                        <div class="level-footer">
+                            <div class="level-stars" data-level="2">☆☆☆</div>
                         </div>
                     </div>
                 </div>
@@ -124,6 +137,21 @@
                 <button id="mainMenuBtn" class="ui-btn btn-ghost">Dream Atlas</button>
                 <button id="nextLevelBtn" class="ui-btn btn-teal">Continue →</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ── TUTORIAL DIALOG ── -->
+    <div id="tutorialDialog" style="display:none;">
+        <div class="tut-backdrop"></div>
+        <div class="tut-box">
+            <div class="tut-step-label" id="tutStepLabel">step 1</div>
+            <p class="tut-text" id="tutText">Welcome to Dreamweaver!</p>
+            <button class="ui-btn btn-teal tut-ok" id="tutOkBtn">OK</button>
+        </div>
+        <div class="tut-arrow" id="tutArrow" style="display:none;">
+            <svg viewBox="0 0 40 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20 4 L20 48 M8 36 L20 52 L32 36" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
         </div>
     </div>
 

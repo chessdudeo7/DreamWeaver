@@ -356,7 +356,7 @@ body {
 
 .level-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 20px;
 }
 
@@ -501,6 +501,130 @@ body {
     color: var(--text-dim);
     letter-spacing: 0.1em;
     margin-bottom: 24px;
+}
+
+
+/* ── Level card footer (stars + tag) ─────────── */
+.level-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+}
+
+.level-stars {
+    font-size: 1rem;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+    text-shadow: 0 0 8px rgba(255,215,0,0.4);
+}
+
+.level-tag {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--teal);
+    background: rgba(0,255,200,0.08);
+    border: 1px solid rgba(0,255,200,0.2);
+    border-radius: 4px;
+    padding: 2px 7px;
+}
+
+/* level-grid now 3 columns for tutorial + 2 levels */
+.level-grid {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* ── Tutorial Dialog ──────────────────────────── */
+#tutorialDialog {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    pointer-events: none;
+}
+
+.tut-backdrop {
+    /* no full screen block — we want the game visible */
+    display: none;
+}
+
+.tut-box {
+    pointer-events: all;
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(520px, 90vw);
+    background: var(--panel-bg);
+    border: 1px solid rgba(0,255,200,0.35);
+    border-radius: 16px;
+    padding: 24px 28px 20px;
+    backdrop-filter: blur(24px);
+    box-shadow:
+        0 0 0 1px rgba(0,255,200,0.1),
+        0 8px 40px rgba(0,0,0,0.7),
+        0 0 32px rgba(0,255,200,0.08);
+    animation: panel-rise 0.3s var(--ease-dream) both;
+}
+
+.tut-box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 10%; right: 10%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--teal), transparent);
+    opacity: 0.5;
+    border-radius: 1px;
+}
+
+.tut-step-label {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--teal);
+    opacity: 0.7;
+    margin-bottom: 8px;
+}
+
+.tut-text {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 1.35rem;
+    font-weight: 300;
+    color: var(--text);
+    line-height: 1.5;
+    margin-bottom: 18px;
+}
+
+.tut-ok {
+    width: 100%;
+    margin-top: 0;
+    padding: 10px;
+    font-size: 0.75rem;
+}
+
+/* Arrow pointer — absolutely positioned over canvas */
+.tut-arrow {
+    pointer-events: none;
+    position: fixed;
+    width: 40px;
+    height: 60px;
+    color: var(--teal);
+    filter: drop-shadow(0 0 8px rgba(0,255,200,0.7));
+    animation: arrow-bounce 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes arrow-bounce {
+    from { transform: translateY(0); }
+    to   { transform: translateY(10px); }
+}
+
+/* Responsive: collapse to 1 col on narrow */
+@media (max-width: 768px) {
+    .level-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ── Level Complete buttons ──────────────────────── */

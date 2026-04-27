@@ -29,6 +29,29 @@
 
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
 
+    // ── Star persistence (localStorage) ──────────────────────────────────────
+    function getBestStars(levelKey) {
+        try { return parseInt(localStorage.getItem('dw_stars_' + levelKey) || '0'); }
+        catch(e) { return 0; }
+    }
+    function setBestStars(levelKey, stars) {
+        try {
+            const prev = getBestStars(levelKey);
+            if (stars > prev) localStorage.setItem('dw_stars_' + levelKey, stars);
+        } catch(e) {}
+    }
+    function refreshStarDisplays() {
+        document.querySelectorAll('.level-stars[data-level]').forEach(el => {
+            const key = el.dataset.level;
+            const best = getBestStars(key);
+            if (key === 'tutorial') {
+                el.textContent = best >= 1 ? '★' : '☆';
+            } else {
+                el.textContent = [0,1,2].map(i => i < best ? '★' : '☆').join('');
+            }
+        });
+    }
+
     // ========== UTILITY ==========
     function rgbToString(rgb) { return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }
 
@@ -267,6 +290,14 @@
             this.lfRole = null;       // null | "owner" | "helper"
             this.lfOrbInHand = null;  // saved orb to return if cancelled/rejected
 
+            // Tutorial state
+            this.isTutorial = false;
+            this.tutStep = 0;        // current step index
+            this.tutWaiting = false; // true = waiting for player action (not OK click)
+            this.tutFirstOrbDone = false;  // tracks when first orb is on vessel
+            this.tutVesselInDV = false;    // tracks when vessel put in Dream Visualizer
+            this.tutDelivered = false;     // tracks final delivery
+
             this.setupEventListeners();
         }
 
@@ -307,9 +338,18 @@
             document.querySelectorAll('.level-card').forEach(card => {
                 card.addEventListener('click', () => {
                     if (!this.isHost) return;
-                    const level = parseInt(card.dataset.level);
-                    this.selectLevel(level);
+                    const lvl = card.dataset.level;
+                    if (lvl === 'tutorial') {
+                        this.selectLevel('tutorial');
+                    } else {
+                        this.selectLevel(parseInt(lvl));
+                    }
                 });
+            });
+
+            // Tutorial OK button
+            document.getElementById('tutOkBtn').addEventListener('click', () => {
+                this.tutAdvance();
             });
         }
 
@@ -370,6 +410,8 @@
         // "Next level" / "Retry" button on the level-complete screen
         async nextLevel() {
             if (!this.isHost) return;
+            // Tutorial complete screen only shows "Dream Atlas" — this shouldn't fire
+            if (this.isTutorial) { this.goToMainMenu(); return; }
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             const passed = stars >= 1;
             let target;
@@ -400,6 +442,7 @@
         }
 
         showLevelSelect() {
+            refreshStarDisplays();
             document.getElementById('lobbyUI').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'none';
 
@@ -467,9 +510,11 @@
             document.getElementById('lobbyUI').style.display = 'none';
             document.getElementById('levelSelectUI').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'none';
+            document.getElementById('tutorialDialog').style.display = 'none';
 
+            this.isTutorial = (levelNum === 'tutorial');
             this.currentLevel = levelNum;
-            this.gameTimer = 120;
+            this.gameTimer = this.isTutorial ? Infinity : 120;
             this.gameState = "PLAYING";
 
             this.playersDict = {};
@@ -482,8 +527,12 @@
             this.orders = []; this.score = 0; this.frame = 0; this.spawnTick = 0;
             this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
             this.lfRole = null; this.lfOrbInHand = null;
+            // Reset tutorial state
+            this.tutStep = 0; this.tutWaiting = false;
+            this.tutFirstOrbDone = false; this.tutVesselInDV = false; this.tutDelivered = false;
 
-            if (levelNum === 1) {
+            // Tutorial uses level 1 layout
+            if (levelNum === 'tutorial' || levelNum === 1) {
                 this.stations = [
                     new Station("Happy Dispenser", 60, 110, 90, 90),
                     new Station("Calm Dispenser", 160, 110, 90, 90),
@@ -513,7 +562,14 @@
                 ];
             }
 
-            for (let i = 0; i < 3; i++) this.addOrder();
+            if (this.isTutorial) {
+                // Fixed tutorial order: Joyful Slumber (Gold + Sky Blue)
+                this.orders = [{ name: "Joyful Slumber", time: Infinity, max: Infinity, recipe: RECIPES["Joyful Slumber"] }];
+                // Start tutorial after a short delay so the game renders first
+                setTimeout(() => this.tutShowStep(0), 400);
+            } else {
+                for (let i = 0; i < 3; i++) this.addOrder();
+            }
         }
 
         addOrder() {
@@ -533,8 +589,12 @@
         update(dt) {
             if (this.gameState !== "PLAYING") { this.frame++; this.mouseClicked = false; return; }
 
-            this.gameTimer -= dt;
-            if (this.gameTimer <= 0) { this.gameState = "LEVEL_COMPLETE"; this.showLevelComplete(); }
+            if (!this.isTutorial) {
+                this.gameTimer -= dt;
+                if (this.gameTimer <= 0) { this.gameState = "LEVEL_COMPLETE"; this.showLevelComplete(); }
+            }
+            // Tutorial: check action-based step advancement
+            if (this.isTutorial && this.tutWaiting) this.tutCheckAction();
 
             if (this.redFlash > 0) this.redFlash -= dt;
             if (this.greenFlash > 0) this.greenFlash -= dt;
@@ -780,30 +840,237 @@
             if (lf && !lf.isCooking) { lf.heldItem = null; }
         }
 
-        showLevelComplete() {
+        // ── TUTORIAL SYSTEM ───────────────────────────────────────────────────
+
+        // All tutorial steps. Each has:
+        //   text:    string shown in the dialog
+        //   ok:      true = show OK button (player reads then continues)
+        //            false = wait for player action (tutCheckAction advances)
+        //   target:  station name to point arrow at (null = no arrow)
+        tutSteps() {
+            return [
+                // 0
+                { text: "Welcome to Dreamweaver! You weave dreams from coloured orbs. Let\'s walk through it together.", ok: true, target: null },
+                // 1
+                { text: "Step 1 — Pick up a Happy orb. Head to the golden Happy Dispenser in the top-left.", ok: true, target: "Happy Dispenser" },
+                // 2  (wait: player picks up a Happy orb)
+                { text: "Press SPACE near the Happy Dispenser to pick up a golden orb.", ok: false, target: "Happy Dispenser" },
+                // 3
+                { text: "Great! Now bring the orb to the Logic Filter on the right and press SPACE to place it inside.", ok: true, target: "Logic Filter" },
+                // 4  (wait: player places orb in Logic Filter)
+                { text: "Press SPACE near the Logic Filter to place the orb in.", ok: false, target: "Logic Filter" },
+                // 5  (wait: player holds space to process)
+                { text: "Now hold SPACE to process the orb. Keep holding until the bar fills completely!", ok: false, target: "Logic Filter" },
+                // 6  (wait: player picks up processed orb)
+                { text: "The orb is processed! Press SPACE near the Logic Filter to pick it up.", ok: false, target: "Logic Filter" },
+                // 7
+                { text: "Now pick up a Vessel from one of the brown Crates in the middle, then press SPACE on the crate with the orb in hand to load it.", ok: true, target: "Crate 1" },
+                // 8  (wait: player loads processed orb onto vessel)
+                { text: "Pick up a Vessel from the crate and load the processed orb onto it by pressing SPACE on the crate.", ok: false, target: "Crate 1" },
+                // 9
+                { text: "One orb down! Now do it again — pick up a Calm (blue) orb from the Calm Dispenser and process it the same way.", ok: true, target: "Calm Dispenser" },
+                // 10  (wait: second processed orb loaded onto vessel)
+                { text: "Process the blue orb through the Logic Filter, then load it onto the same vessel.", ok: false, target: "Calm Dispenser" },
+                // 11
+                { text: "The vessel has both orbs! Take it to the Dream Visualizer at the bottom and press SPACE to start cooking.", ok: true, target: "Dream Visualizer" },
+                // 12  (wait: vessel placed in Dream Visualizer)
+                { text: "Press SPACE near the Dream Visualizer with the vessel to begin cooking.", ok: false, target: "Dream Visualizer" },
+                // 13  (wait: cooking finishes)
+                { text: "The Dream Visualizer is working its magic… wait for the bar to fill.", ok: false, target: "Dream Visualizer" },
+                // 14  (wait: player picks up finished orb and puts on vessel)
+                { text: "The dream orb is ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
+                // 15
+                { text: "Almost there! Bring the vessel to the Gateway on the left and press SPACE to deliver the dream.", ok: true, target: "Gateway" },
+                // 16  (wait: delivery)
+                { text: "Press SPACE at the Gateway to deliver Joyful Slumber!", ok: false, target: "Gateway" },
+                // 17  (final)
+                { text: "You did it! You\'ve woven your first dream. Now go weave something wonderful. ✦", ok: true, target: null },
+            ];
+        }
+
+        tutShowStep(idx) {
+            const steps = this.tutSteps();
+            if (idx >= steps.length) return;
+            this.tutStep = idx;
+            const step = steps[idx];
+
+            const dlg = document.getElementById('tutorialDialog');
+            dlg.style.display = 'block';
+            document.getElementById('tutStepLabel').textContent = `step ${idx + 1} of ${steps.length}`;
+            document.getElementById('tutText').textContent = step.text.replace(/\\/g, '');
+            document.getElementById('tutOkBtn').style.display = step.ok ? 'block' : 'none';
+
+            this.tutWaiting = !step.ok;
+            this.tutShowArrow(step.target);
+        }
+
+        tutShowArrow(stationName) {
+            const arrow = document.getElementById('tutArrow');
+            if (!stationName) { arrow.style.display = 'none'; return; }
+
+            const station = this.getStation(stationName);
+            if (!station) { arrow.style.display = 'none'; return; }
+
+            // Convert canvas station coords to screen coords
+            const canvas = this.canvas;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = rect.width / WIDTH;
+            const scaleY = rect.height / HEIGHT;
+
+            const sx = rect.left + (station.x + station.w / 2) * scaleX;
+            // Arrow tip points down, position it above the station
+            const sy = rect.top + station.y * scaleY - 72;
+
+            arrow.style.display = 'block';
+            arrow.style.left = (sx - 20) + 'px';
+            arrow.style.top = sy + 'px';
+        }
+
+        tutAdvance() {
+            // OK button clicked — move to next step
+            const steps = this.tutSteps();
+            const next = this.tutStep + 1;
+            if (next >= steps.length) {
+                // Final step OK — show level complete
+                document.getElementById('tutorialDialog').style.display = 'none';
+                this.gameState = "LEVEL_COMPLETE";
+                this.showLevelComplete();
+                return;
+            }
+            this.tutShowStep(next);
+        }
+
+        tutHide() {
+            document.getElementById('tutorialDialog').style.display = 'none';
+            document.getElementById('tutArrow').style.display = 'none';
+            this.tutWaiting = false;
+        }
+
+        tutCheckAction() {
+            // Called every frame while tutWaiting = true.
+            // Detects player actions and advances the step when they complete it.
+            const step = this.tutStep;
+            const p = this.player;
+            if (!p) return;
+
+            const held = p.heldItem;
+            const lf = this.getStation("Logic Filter");
+            const dv = this.getStation("Dream Visualizer");
+            const crate1 = this.getStation("Crate 1");
+            const crate2 = this.getStation("Crate 2");
+            const crate3 = this.getStation("Crate 3");
+
+            // Helper: does any crate hold a vessel with bundle.length >= n?
+            const crateVesselBundles = () => [crate1,crate2,crate3]
+                .filter(c => c?.heldItem?.isVessel)
+                .map(c => c.heldItem.bundle.length);
+
+            if (step === 2) {
+                // Wait: player picks up a Happy orb (gold, not vessel, not processed)
+                if (held && !held.isVessel && !held.isProcessed && held.name === "Happy") {
+                    this.tutShowStep(3);
+                }
+            } else if (step === 4) {
+                // Wait: player places orb in Logic Filter (lf has held_item and is_cooking)
+                if (lf && lf.isCooking && lf.heldItem) {
+                    this.tutShowStep(5);
+                }
+            } else if (step === 5) {
+                // Wait: Logic Filter finishes processing
+                if (lf && !lf.isCooking && lf.heldItem && lf.heldItem.isProcessed) {
+                    this.tutShowStep(6);
+                }
+            } else if (step === 6) {
+                // Wait: player picks up processed orb from LF
+                if (held && held.isProcessed && !held.isVessel) {
+                    this.tutShowStep(7);
+                }
+            } else if (step === 8) {
+                // Wait: a vessel in any crate has bundle.length >= 1
+                if (crateVesselBundles().some(n => n >= 1)) {
+                    this.tutFirstOrbDone = true;
+                    this.tutShowStep(9);
+                }
+                // Also: player holding vessel with bundle >= 1
+                if (held?.isVessel && held.bundle.length >= 1) {
+                    this.tutFirstOrbDone = true;
+                    this.tutShowStep(9);
+                }
+            } else if (step === 10) {
+                // Wait: a vessel anywhere has bundle.length >= 2 or dishName set
+                const vesselFull =
+                    [crate1,crate2,crate3].some(c => c?.heldItem?.isVessel && (c.heldItem.bundle.length >= 2 || c.heldItem.dishName)) ||
+                    (held?.isVessel && (held.bundle.length >= 2 || held.dishName));
+                if (vesselFull) {
+                    this.tutShowStep(11);
+                }
+            } else if (step === 12) {
+                // Wait: vessel placed in Dream Visualizer (dv cooking)
+                if (dv && dv.isCooking) {
+                    this.tutVesselInDV = true;
+                    this.tutShowStep(13);
+                }
+            } else if (step === 13) {
+                // Wait: Dream Visualizer finishes (has result item, not cooking)
+                if (dv && !dv.isCooking && dv.heldItem && dv.heldItem.isProcessed) {
+                    this.tutShowStep(14);
+                }
+            } else if (step === 14) {
+                // Wait: player has a vessel with a dishName (ready to deliver)
+                const readyVessel =
+                    (held?.isVessel && held.dishName) ||
+                    [crate1,crate2,crate3].some(c => c?.heldItem?.isVessel && c.heldItem.dishName);
+                if (readyVessel) {
+                    this.tutShowStep(15);
+                }
+            } else if (step === 16) {
+                // Wait: score goes up (delivery detected) or orders array is empty
+                if (this.orders.length === 0 || this.score > 0) {
+                    this.tutDelivered = true;
+                    this.tutShowStep(17);
+                }
+            }
+        }
+
+                showLevelComplete() {
+            document.getElementById('tutorialDialog').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'flex';
+
+            if (this.isTutorial) {
+                setBestStars('tutorial', 1);
+                refreshStarDisplays();
+                document.getElementById('levelResultText').textContent = 'The First Weave — Complete';
+                document.getElementById('scoreDisplay').textContent = "You're ready to dream.";
+                document.getElementById('starsDisplay').textContent = '★';
+                document.getElementById('nextLevelBtn').style.display = 'none';
+                document.getElementById('mainMenuBtn').textContent = 'Dream Atlas →';
+                document.getElementById('mainMenuBtn').style.width = '100%';
+                return;
+            }
+
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             const passed = stars >= 1;
+            setBestStars(String(this.currentLevel), stars);
+            refreshStarDisplays();
 
             document.getElementById('levelResultText').textContent =
                 passed ? `Dream ${this.currentLevel} Woven` : `Dream ${this.currentLevel} Faded`;
             document.getElementById('scoreDisplay').textContent = `${this.score} dream points`;
             document.getElementById('starsDisplay').textContent =
-                [0,1,2].map(i => stars > i ? '★' : '☆').join('');
+                [0,1,2].map(i => i < stars ? '★' : '☆').join('');
 
-            // Right button: next level (if passed and more levels exist) or retry
+            // Reset button widths in case tutorial changed them
+            document.getElementById('mainMenuBtn').style.width = '';
+            document.getElementById('nextLevelBtn').style.display = '';
+
             const nextBtn = document.getElementById('nextLevelBtn');
+            document.getElementById('mainMenuBtn').textContent = 'Dream Atlas';
             if (passed && this.currentLevel < 2) {
                 nextBtn.textContent = 'Next Dream →';
-                nextBtn.style.display = '';
             } else if (passed) {
-                // Completed the last level
                 nextBtn.textContent = 'All Dreams Woven ✦';
-                nextBtn.style.display = '';
             } else {
-                // Failed — show retry
                 nextBtn.textContent = 'Retry Dream →';
-                nextBtn.style.display = '';
             }
         }
 
@@ -844,7 +1111,11 @@
                 this.ctx.fillText(`SCORE: ${this.score}`, WIDTH-40, HEIGHT-15);
                 this.ctx.textAlign = 'left';
                 this.ctx.fillStyle = rgbToString(WHITE);
-                this.ctx.fillText(`TIME: ${Math.max(0,Math.floor(this.gameTimer))}s`, 40, HEIGHT-15);
+                if (this.isTutorial) {
+                    this.ctx.fillText('TUTORIAL', 40, HEIGHT-15);
+                } else {
+                    this.ctx.fillText(`TIME: ${Math.max(0,Math.floor(this.gameTimer))}s`, 40, HEIGHT-15);
+                }
             }
         }
 
@@ -869,9 +1140,11 @@
                 if (level === 0) {
                     // Return to dream atlas (level select) for all players
                     document.getElementById('levelCompleteUI').style.display = 'none';
+                    document.getElementById('tutorialDialog').style.display = 'none';
                     game.gameState = "LEVEL_SELECT";
                     game.showLevelSelect();
                 } else {
+                    // level may be "tutorial" (string) or a number
                     game.loadLevel(level);
                 }
             };
