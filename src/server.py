@@ -36,13 +36,17 @@ room_connections = {}
 
 
 class TutorialState:
-    """Tracks synced tutorial progress for a room."""
-    TOTAL_STEPS = 20  # indices 0-19
+    """Tracks synced tutorial progress for a room (20 steps, indices 0-19)."""
+    TOTAL_STEPS = 20
 
-    # Steps where ok=True (all players must confirm before advancing)
-    OK_STEPS = {0, 1, 3, 7, 9, 11, 15, 17, 19}
+    # Steps where ok=True — ALL players must click OK before advancing
+    OK_STEPS = {0, 9, 17, 19}
 
-    # Map of action key -> which step it advances from
+    # Proximity steps — advance when any player enters the target station radius.
+    # Key sent by client is "proximity_<step_index>"
+    PROXIMITY_STEPS = {1, 3, 7, 11, 15}
+
+    # Action steps — advance when any player sends the matching key
     ACTION_MAP = {
         "orb_picked":  2,
         "lf_placed":   4,
@@ -58,10 +62,10 @@ class TutorialState:
     }
 
     def __init__(self, player_ids):
-        self.step = 0
-        self.confirmed = set()   # player_ids who clicked OK on current step
+        self.step       = 0
+        self.confirmed  = set()
         self.player_ids = set(player_ids)
-        self.complete = False
+        self.complete   = False
 
     def to_dict(self):
         return {
@@ -74,17 +78,26 @@ class TutorialState:
         return self.player_ids <= self.confirmed
 
     def try_ok(self, client_id):
-        """Player clicked OK. Returns True if all confirmed and we should advance."""
         if self.step not in self.OK_STEPS:
             return False
         self.confirmed.add(client_id)
         if self.all_confirmed():
             self._advance()
             return True
-        return False  # partial — broadcast updated confirmed list
+        return False  # partial — rebroadcast so others see "Waiting..."
 
     def try_action(self, key):
-        """Any player completed an action. Returns True if step advanced."""
+        # Proximity action: key = "proximity_<idx>"
+        if key.startswith("proximity_"):
+            try:
+                idx = int(key.split("_")[1])
+            except ValueError:
+                return False
+            if idx == self.step and idx in self.PROXIMITY_STEPS:
+                self._advance()
+                return True
+            return False
+        # Named action
         expected = self.ACTION_MAP.get(key)
         if expected is None or expected != self.step:
             return False
@@ -96,7 +109,7 @@ class TutorialState:
         self.step += 1
         if self.step >= self.TOTAL_STEPS:
             self.complete = True
-            self.step = self.TOTAL_STEPS - 1
+            self.step     = self.TOTAL_STEPS - 1
 
 
 def generate_code():
@@ -132,8 +145,9 @@ async def schedule_vessel_respawn(room_code, delay=5.0):
 
 
 class GameState:
-    def __init__(self, level=1):
+    def __init__(self, level=1, is_tutorial=False):
         self.level = level
+        self.is_tutorial = is_tutorial
         self.state = "PLAYING"
         self.score = 0
         self.game_timer = 120.0
@@ -198,8 +212,16 @@ class GameState:
             }
 
     def _spawn_initial_orders(self):
-        for _ in range(3):
-            self._add_order()
+        if self.is_tutorial:
+            # Fixed orders: Deep Calm (guided) + Joyful Slumber (solo)
+            # Infinite time so they never expire
+            self.orders = [
+                {"name": "Deep Calm",     "time": 9999.0, "max": 9999.0, "recipe": RECIPES["Deep Calm"]},
+                {"name": "Joyful Slumber","time": 9999.0, "max": 9999.0, "recipe": RECIPES["Joyful Slumber"]},
+            ]
+        else:
+            for _ in range(3):
+                self._add_order()
 
     def _add_order(self):
         if len(self.orders) >= 5:
@@ -243,15 +265,17 @@ class GameState:
             self.state = "LEVEL_COMPLETE"
 
         self.frame += 1
-        self.spawn_tick += dt
-        if self.spawn_tick > 15 and len(self.orders) < 5:
-            self._add_order()
-            self.spawn_tick = 0
+        if not self.is_tutorial:
+            self.spawn_tick += dt
+            if self.spawn_tick > 15 and len(self.orders) < 5:
+                self._add_order()
+                self.spawn_tick = 0
 
         remaining = []
         for o in self.orders:
-            o["time"] -= dt
-            if o["time"] <= 0:
+            if not self.is_tutorial:
+                o["time"] -= dt
+            if not self.is_tutorial and o["time"] <= 0:
                 self.score -= 20
             else:
                 remaining.append(o)
@@ -405,9 +429,10 @@ async def handle_client(websocket):
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
                         continue
-                    # "tutorial" uses level 1 layout on the server (same stations/orders managed client-side)
-                    server_level = 1 if level == "tutorial" else level
-                    rooms[current_room]["game_state"] = GameState(server_level)
+                    # "tutorial" uses level 1 layout; is_tutorial flag changes order/timer behaviour
+                    is_tut = (level == "tutorial")
+                    server_level = 1 if is_tut else level
+                    rooms[current_room]["game_state"] = GameState(server_level, is_tutorial=is_tut)
                     # Broadcast level_load to ALL players so everyone enters the game together
                     if current_room in room_connections:
                         msg = json.dumps({"status": "level_load", "level": level})
