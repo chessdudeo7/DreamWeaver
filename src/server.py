@@ -11,9 +11,14 @@ HOST = "0.0.0.0"
 PORT = int(os.getenv("PORT", 5555))
 
 RECIPES = {
+    # 2-orb recipes
     "Joyful Slumber": [[255, 215, 0], [0, 191, 255]],
-    "Action Flight": [[255, 140, 0], [255, 215, 0]],
-    "Deep Calm": [[0, 191, 255], [0, 191, 255]]
+    "Action Flight":  [[255, 140, 0], [255, 215, 0]],
+    "Deep Calm":      [[0, 191, 255], [0, 191, 255]],
+    # 3-orb recipes (level 3)
+    "Vivid Odyssey":  [[255, 140, 0], [255, 215, 0], [0, 191, 255]],
+    "Velvet Abyss":   [[0, 191, 255], [0, 191, 255], [255, 215, 0]],
+    "Ember Vision":   [[255, 140, 0], [255, 140, 0], [255, 215, 0]],
 }
 STATION_COLORS = {
     "Happy Dispenser": [255, 215, 0],
@@ -37,14 +42,15 @@ room_connections = {}
 
 class TutorialState:
     """Tracks synced tutorial progress for a room (20 steps, indices 0-19)."""
-    TOTAL_STEPS = 20
+    TOTAL_STEPS = 22
 
     # Steps where ok=True — ALL players must click OK before advancing
-    OK_STEPS = {0, 9, 17, 19}
+    # 0=intro, 9=checkpoint, 10=vessel return tip, 11=void siphon tip, 19=solo order, 21=final
+    OK_STEPS = {0, 9, 10, 11, 19, 21}
 
     # Proximity steps — advance when any player enters the target station radius.
     # Key sent by client is "proximity_<step_index>"
-    PROXIMITY_STEPS = {1, 3, 7, 11, 15}
+    PROXIMITY_STEPS = {1, 3, 7, 13, 17}
 
     # Action steps — advance when any player sends the matching key
     ACTION_MAP = {
@@ -53,12 +59,12 @@ class TutorialState:
         "lf_done":     5,
         "lf_pickup":   6,
         "vessel_1":    8,
-        "vessel_2":    10,
-        "dv_start":    12,
-        "dv_done":     13,
-        "vessel_dish": 14,
-        "delivery_1":  16,
-        "delivery_2":  18,
+        "vessel_2":    12,
+        "dv_start":    14,
+        "dv_done":     15,
+        "vessel_dish": 16,
+        "delivery_1":  18,
+        "delivery_2":  20,
     }
 
     def __init__(self, player_ids):
@@ -176,7 +182,7 @@ class GameState:
                 ("Crate 2", 450, 280, 60, 60),
                 ("Crate 3", 520, 280, 60, 60),
             ]
-        else:
+        elif level == 2:
             configs = [
                 ("Happy Dispenser", 740, 510, 90, 90),
                 ("Calm Dispenser", 640, 510, 90, 90),
@@ -189,6 +195,20 @@ class GameState:
                 ("Crate 1", 380, 320, 60, 60),
                 ("Crate 2", 450, 320, 60, 60),
                 ("Crate 3", 520, 320, 60, 60),
+            ]
+        else:  # level 3
+            configs = [
+                ("Happy Dispenser", 60, 300, 90, 90),
+                ("Calm Dispenser", 60, 410, 90, 90),
+                ("Adventure Dispenser", 60, 190, 90, 90),
+                ("Logic Filter", 400, 110, 140, 120),
+                ("Dream Visualizer", 750, 300, 110, 110),
+                ("Gateway", 400, 510, 140, 90),
+                ("Vessel Return", 750, 510, 110, 90),
+                ("Void Siphon", 750, 110, 90, 90),
+                ("Crate 1", 220, 240, 60, 60),
+                ("Crate 2", 220, 340, 60, 60),
+                ("Crate 3", 220, 440, 60, 60),
             ]
 
         for name, x, y, w, h in configs:

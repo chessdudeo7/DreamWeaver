@@ -356,7 +356,7 @@ body {
 
 .level-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
     gap: 20px;
 }
 
@@ -533,7 +533,7 @@ body {
 
 /* level-grid now 3 columns for tutorial + 2 levels */
 .level-grid {
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
 }
 
 /* ── Tutorial Dialog ──────────────────────────── */

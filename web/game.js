@@ -22,9 +22,14 @@
     };
 
     const RECIPES = {
-        "Joyful Slumber": [GOLD, SKY_BLUE],
-        "Action Flight": [ORANGE, GOLD],
-        "Deep Calm": [SKY_BLUE, SKY_BLUE]
+        // 2-orb recipes
+        "Joyful Slumber":  [GOLD, SKY_BLUE],
+        "Action Flight":   [ORANGE, GOLD],
+        "Deep Calm":       [SKY_BLUE, SKY_BLUE],
+        // 3-orb recipes (level 3)
+        "Vivid Odyssey":   [ORANGE, GOLD, SKY_BLUE],
+        "Velvet Abyss":    [SKY_BLUE, SKY_BLUE, GOLD],
+        "Ember Vision":    [ORANGE, ORANGE, GOLD],
     };
 
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
@@ -415,7 +420,7 @@
             let target;
             if (!passed) {
                 target = this.currentLevel;           // retry same level
-            } else if (this.currentLevel < 2) {
+            } else if (this.currentLevel < 3) {
                 target = this.currentLevel + 1;       // advance to next
             } else {
                 // Last level cleared — go back to atlas
@@ -543,7 +548,7 @@
                     new Station("Crate 2", 450, 280, 60, 60),
                     new Station("Crate 3", 520, 280, 60, 60),
                 ];
-            } else {
+            } else if (levelNum === 2) {
                 this.stations = [
                     new Station("Happy Dispenser", 740, 510, 90, 90),
                     new Station("Calm Dispenser", 640, 510, 90, 90),
@@ -556,6 +561,21 @@
                     new Station("Crate 1", 380, 320, 60, 60),
                     new Station("Crate 2", 450, 320, 60, 60),
                     new Station("Crate 3", 520, 320, 60, 60),
+                ];
+            } else {
+                // Level 3 — new layout, 3-orb orders mixed in
+                this.stations = [
+                    new Station("Happy Dispenser", 60, 300, 90, 90),
+                    new Station("Calm Dispenser", 60, 410, 90, 90),
+                    new Station("Adventure Dispenser", 60, 190, 90, 90),
+                    new Station("Logic Filter", 400, 110, 140, 120),
+                    new Station("Dream Visualizer", 750, 300, 110, 110),
+                    new Station("Gateway", 400, 510, 140, 90),
+                    new Station("Vessel Return", 750, 510, 110, 90),
+                    new Station("Void Siphon", 750, 110, 90, 90),
+                    new Station("Crate 1", 220, 240, 60, 60),
+                    new Station("Crate 2", 220, 340, 60, 60),
+                    new Station("Crate 3", 220, 440, 60, 60),
                 ];
             }
 
@@ -863,7 +883,7 @@
             return [
                 // 0 — OK (intro, movement locked)
                 { text: "Welcome to Dreamweaver! You weave dreams from coloured orbs. This tutorial walks you through making a Deep Calm dream — two blue orbs. Click OK to begin.", ok: true, target: null },
-                // 1 — PROXIMITY: Calm Dispenser (auto-advance when player arrives)
+                // 1 — PROXIMITY: Calm Dispenser
                 { text: "Head to the Calm Dispenser — the blue station in the top row.", ok: false, proximity: "Calm Dispenser", target: "Calm Dispenser" },
                 // 2 — ACTION: any player picks up Calm orb
                 { text: "Press SPACE to pick up a blue orb.", ok: false, target: "Calm Dispenser" },
@@ -878,28 +898,32 @@
                 // 7 — PROXIMITY: Crate 1
                 { text: "Head to one of the brown Crates in the middle.", ok: false, proximity: "Crate 1", target: "Crate 1" },
                 // 8 — ACTION: processed orb loaded onto vessel (bundle >= 1)
-                { text: "Pick up a Vessel from the crate, then press SPACE on a crate while holding it to load the orb.", ok: false, target: "Crate 1" },
+                { text: "Pick up a Vessel from the crate, then press SPACE on the crate while holding it to load the orb.", ok: false, target: "Crate 1" },
                 // 9 — OK (checkpoint before second orb)
-                { text: "One blue orb loaded! Now do the same for a second blue orb. Pick it up from the Calm Dispenser, process it at the Logic Filter, and load it onto the same vessel.", ok: true, target: null },
-                // 10 — ACTION: vessel has bundle >= 2
-                { text: "Process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
-                // 11 — PROXIMITY: Dream Visualizer
+                { text: "One blue orb loaded! Now do the same for a second blue orb — pick it up from the Calm Dispenser, process it, and load it onto the same vessel.", ok: true, target: null },
+                // 10 — OK (Vessel Return tip)
+                { text: "Tip: when you deliver a vessel through the Gateway, it returns to the Vessel Return station after a few seconds. Pick it up there to reuse it!", ok: true, target: "Vessel Return" },
+                // 11 — OK (Void Siphon tip)
+                { text: "Tip: if you ever mess up a vessel, bring it to the Void Siphon and press SPACE — it will clear everything on it so you can start fresh.", ok: true, target: "Void Siphon" },
+                // 12 — ACTION: vessel has bundle >= 2
+                { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
+                // 13 — PROXIMITY: Dream Visualizer
                 { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
-                // 12 — ACTION: DV starts cooking
+                // 14 — ACTION: DV starts cooking
                 { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
-                // 13 — ACTION: DV finishes
+                // 15 — ACTION: DV finishes
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
-                // 14 — ACTION: any vessel with dishName ready
+                // 16 — ACTION: any vessel with dishName ready
                 { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
-                // 15 — PROXIMITY: Gateway
+                // 17 — PROXIMITY: Gateway
                 { text: "Bring the vessel to the Gateway on the bottom-left.", ok: false, proximity: "Gateway", target: "Gateway" },
-                // 16 — ACTION: first order delivered
+                // 18 — ACTION: first order delivered
                 { text: "Press SPACE at the Gateway to deliver Deep Calm!", ok: false, target: "Gateway" },
-                // 17 — OK (solo order checkpoint)
+                // 19 — OK (solo order checkpoint)
                 { text: "Well done! Now complete the second order on your own — Joyful Slumber needs a golden orb and a blue orb. You know what to do!", ok: true, target: null },
-                // 18 — ACTION: both orders gone
+                // 20 — ACTION: both orders gone
                 { text: "Complete the Joyful Slumber order and deliver it through the Gateway.", ok: false, target: null },
-                // 19 — OK (final)
+                // 21 — OK (final)
                 { text: "You did it! You are now a Dreamweaver. Go weave something wonderful. ✦", ok: true, target: null },
             ];
         }
@@ -1019,22 +1043,22 @@
                 case 8:
                     if (anyVesselBund(1))
                         this.tutSendAction("vessel_1"); break;
-                case 10:
+                case 12:
                     if (anyVesselBund(2))
                         this.tutSendAction("vessel_2"); break;
-                case 12:
+                case 14:
                     if (dv?.isCooking)
                         this.tutSendAction("dv_start"); break;
-                case 13:
+                case 15:
                     if (dv && !dv.isCooking && dv.heldItem?.isProcessed)
                         this.tutSendAction("dv_done"); break;
-                case 14:
+                case 16:
                     if (anyVesselDish())
                         this.tutSendAction("vessel_dish"); break;
-                case 16:
+                case 18:
                     if (this.score > 0 || this.orders.length < 2)
                         this.tutSendAction("delivery_1"); break;
-                case 18:
+                case 20:
                     if (this.orders.length === 0)
                         this.tutSendAction("delivery_2"); break;
             }
@@ -1075,7 +1099,7 @@
 
             const nextBtn = document.getElementById('nextLevelBtn');
             document.getElementById('mainMenuBtn').textContent = 'Dream Atlas';
-            if (passed && this.currentLevel < 2) {
+            if (passed && this.currentLevel < 3) {
                 nextBtn.textContent = 'Next Dream →';
             } else if (passed) {
                 nextBtn.textContent = 'All Dreams Woven ✦';
@@ -1116,9 +1140,11 @@
                 }
 
                 this.ctx.font = 'bold 28px Arial';
-                this.ctx.fillStyle = rgbToString(GOLD);
                 this.ctx.textAlign = 'right';
-                this.ctx.fillText(`SCORE: ${this.score}`, WIDTH-40, HEIGHT-15);
+                if (!this.isTutorial) {
+                    this.ctx.fillStyle = rgbToString(GOLD);
+                    this.ctx.fillText(`SCORE: ${this.score}`, WIDTH-40, HEIGHT-15);
+                }
                 this.ctx.textAlign = 'left';
                 this.ctx.fillStyle = rgbToString(WHITE);
                 if (this.isTutorial) {
