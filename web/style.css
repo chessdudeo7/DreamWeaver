@@ -342,9 +342,11 @@ body {
 
 /* ── Level Select Panel ───────────────────────── */
 .level-select-panel {
-    max-width: 680px;
-    width: 95%;
+    max-width: 780px;
+    width: 96%;
     text-align: center;
+    max-height: 92vh;
+    overflow-y: auto;
 }
 
 .level-select-hint {
@@ -356,8 +358,18 @@ body {
 
 .level-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-    gap: 20px;
+    gap: 16px;
+}
+
+/* Top row: tutorial (wider) + level 1 */
+.level-grid-top {
+    grid-template-columns: 1.4fr 1fr;
+    margin-bottom: 16px;
+}
+
+/* Bottom row: levels 2, 3, 4 equal width */
+.level-grid-bottom {
+    grid-template-columns: 1fr 1fr 1fr;
 }
 
 /* ── Level Card ───────────────────────────────── */
@@ -622,7 +634,8 @@ body {
 
 /* Responsive: collapse to 1 col on narrow */
 @media (max-width: 768px) {
-    .level-grid {
+    .level-grid-top,
+    .level-grid-bottom {
         grid-template-columns: 1fr;
     }
 }

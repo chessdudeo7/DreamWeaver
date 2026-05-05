@@ -196,7 +196,7 @@ class GameState:
                 ("Crate 2", 450, 320, 60, 60),
                 ("Crate 3", 520, 320, 60, 60),
             ]
-        else:  # level 3
+        elif level == 3:
             configs = [
                 ("Happy Dispenser", 60, 300, 90, 90),
                 ("Calm Dispenser", 60, 410, 90, 90),
@@ -209,6 +209,20 @@ class GameState:
                 ("Crate 1", 220, 240, 60, 60),
                 ("Crate 2", 220, 340, 60, 60),
                 ("Crate 3", 220, 440, 60, 60),
+            ]
+        else:  # level 4
+            configs = [
+                ("Happy Dispenser", 160, 110, 90, 90),
+                ("Calm Dispenser", 270, 110, 90, 90),
+                ("Adventure Dispenser", 60, 110, 90, 90),
+                ("Logic Filter", 60, 430, 100, 140),
+                ("Dream Visualizer", 650, 430, 140, 110),
+                ("Gateway", 800, 110, 80, 90),
+                ("Vessel Return", 800, 230, 80, 90),
+                ("Void Siphon", 800, 350, 80, 90),
+                ("Crate 1", 380, 270, 60, 60),
+                ("Crate 2", 460, 270, 60, 60),
+                ("Crate 3", 540, 270, 60, 60),
             ]
 
         for name, x, y, w, h in configs:
@@ -233,21 +247,64 @@ class GameState:
 
     def _spawn_initial_orders(self):
         if self.is_tutorial:
-            # Fixed orders: Deep Calm (guided) + Joyful Slumber (solo)
-            # Infinite time so they never expire
             self.orders = [
-                {"name": "Deep Calm",     "time": 9999.0, "max": 9999.0, "recipe": RECIPES["Deep Calm"]},
-                {"name": "Joyful Slumber","time": 9999.0, "max": 9999.0, "recipe": RECIPES["Joyful Slumber"]},
+                {"name": "Deep Calm",      "time": 9999.0, "max": 9999.0, "recipe": RECIPES["Deep Calm"],
+                 "is_priority": False, "is_three_orb": False},
+                {"name": "Joyful Slumber", "time": 9999.0, "max": 9999.0, "recipe": RECIPES["Joyful Slumber"],
+                 "is_priority": False, "is_three_orb": False},
             ]
+        elif self.level == 4:
+            # Start level 4 with 2 regular + 1 priority
+            self._add_order(force_priority=False)
+            self._add_order(force_priority=False)
+            self._add_order(force_priority=True)
         else:
             for _ in range(3):
                 self._add_order()
 
-    def _add_order(self):
+    # 2-orb recipe names
+    TWO_ORB_RECIPES = {"Joyful Slumber", "Action Flight", "Deep Calm"}
+    # 3-orb recipe names
+    THREE_ORB_RECIPES = {"Vivid Odyssey", "Velvet Abyss", "Ember Vision"}
+
+    def _add_order(self, force_priority=False):
         if len(self.orders) >= 5:
             return
-        name = random.choice(list(RECIPES.keys()))
-        self.orders.append({"name": name, "time": 60.0, "max": 60.0, "recipe": RECIPES[name]})
+
+        if self.level == 4:
+            # Level 4: mix regular + priority, but priority must be 2-orb only
+            is_priority = force_priority or (random.random() < 0.4)
+            if is_priority:
+                name = random.choice(list(self.TWO_ORB_RECIPES))
+            else:
+                name = random.choice(list(self.TWO_ORB_RECIPES))  # level 4 keeps 2-orb only for now
+        else:
+            is_priority = False
+            # Levels 1-2: only 2-orb recipes
+            if self.level <= 2:
+                name = random.choice(list(self.TWO_ORB_RECIPES))
+            else:
+                # Level 3: mix 2 and 3 orb
+                name = random.choice(list(RECIPES.keys()))
+
+        is_three_orb = name in self.THREE_ORB_RECIPES
+
+        if is_priority:
+            # Priority orders: 2/3 of normal time, flagged
+            base_time = 40.0
+        elif is_three_orb:
+            base_time = 60.0  # 3-orb orders get more time
+        else:
+            base_time = 60.0  # standard
+
+        self.orders.append({
+            "name": name,
+            "time": base_time,
+            "max": base_time,
+            "recipe": RECIPES[name],
+            "is_priority": is_priority,
+            "is_three_orb": is_three_orb,
+        })
 
     def count_total_vessels(self, players_dict):
         count = 0
@@ -288,7 +345,9 @@ class GameState:
         if not self.is_tutorial:
             self.spawn_tick += dt
             if self.spawn_tick > 15 and len(self.orders) < 5:
-                self._add_order()
+                # Level 4: occasionally force a priority order on spawn
+                force_p = (self.level == 4 and random.random() < 0.35)
+                self._add_order(force_priority=force_p)
                 self.spawn_tick = 0
 
         remaining = []
@@ -671,7 +730,14 @@ async def handle_client(websocket):
                         delivered = False
                         for i, order in enumerate(game_state.orders):
                             if order["name"] == dish_name:
-                                game_state.score += (20 + int(order["time"] / 2))
+                                is_priority   = order.get("is_priority", False)
+                                is_three_orb  = order.get("is_three_orb", False)
+                                # Base points: 3-orb = 40, 2-orb = 20
+                                base = 40 if is_three_orb else 20
+                                # Time bonus: scaled to order max so both feel proportional
+                                time_bonus = int(order["time"] / (1.5 if is_three_orb else 2))
+                                points = (base + time_bonus) * (2 if is_priority else 1)
+                                game_state.score += points
                                 game_state.orders.pop(i)
                                 delivered = True
                                 break

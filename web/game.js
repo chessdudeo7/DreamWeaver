@@ -420,7 +420,7 @@
             let target;
             if (!passed) {
                 target = this.currentLevel;           // retry same level
-            } else if (this.currentLevel < 3) {
+            } else if (this.currentLevel < 4) {
                 target = this.currentLevel + 1;       // advance to next
             } else {
                 // Last level cleared — go back to atlas
@@ -562,8 +562,7 @@
                     new Station("Crate 2", 450, 320, 60, 60),
                     new Station("Crate 3", 520, 320, 60, 60),
                 ];
-            } else {
-                // Level 3 — new layout, 3-orb orders mixed in
+            } else if (levelNum === 3) {
                 this.stations = [
                     new Station("Happy Dispenser", 60, 300, 90, 90),
                     new Station("Calm Dispenser", 60, 410, 90, 90),
@@ -576,6 +575,21 @@
                     new Station("Crate 1", 220, 240, 60, 60),
                     new Station("Crate 2", 220, 340, 60, 60),
                     new Station("Crate 3", 220, 440, 60, 60),
+                ];
+            } else {
+                // Level 4 — priority orders introduced
+                this.stations = [
+                    new Station("Happy Dispenser", 160, 110, 90, 90),
+                    new Station("Calm Dispenser", 270, 110, 90, 90),
+                    new Station("Adventure Dispenser", 60, 110, 90, 90),
+                    new Station("Logic Filter", 60, 430, 100, 140),
+                    new Station("Dream Visualizer", 650, 430, 140, 110),
+                    new Station("Gateway", 800, 110, 80, 90),
+                    new Station("Vessel Return", 800, 230, 80, 90),
+                    new Station("Void Siphon", 800, 350, 80, 90),
+                    new Station("Crate 1", 380, 270, 60, 60),
+                    new Station("Crate 2", 460, 270, 60, 60),
+                    new Station("Crate 3", 540, 270, 60, 60),
                 ];
             }
 
@@ -600,9 +614,25 @@
         }
 
         addOrder() {
-            const names = Object.keys(RECIPES);
-            const name = names[Math.floor(Math.random() * names.length)];
-            this.orders.push({ name, time: 60, max: 60, recipe: RECIPES[name] });
+            // Client-side order generation (used in offline/local mode and for tutorial initial orders)
+            // In online play, orders come from server via broadcast — this just seeds the initial display
+            const twoOrb   = ["Joyful Slumber", "Action Flight", "Deep Calm"];
+            const threeOrb = ["Vivid Odyssey", "Velvet Abyss", "Ember Vision"];
+            let name, is_priority = false, is_three_orb = false;
+            if (this.currentLevel === 4) {
+                is_priority = Math.random() < 0.35;
+                name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
+            } else if (this.currentLevel === 3) {
+                name = Math.random() < 0.5
+                    ? twoOrb[Math.floor(Math.random()   * twoOrb.length)]
+                    : threeOrb[Math.floor(Math.random() * threeOrb.length)];
+                is_three_orb = threeOrb.includes(name);
+            } else {
+                name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
+            }
+            const baseTime = is_priority ? 40 : 60;
+            this.orders.push({ name, time: baseTime, max: baseTime,
+                recipe: RECIPES[name], is_priority, is_three_orb });
         }
 
         sendStationUpdate(payload) {
@@ -832,7 +862,12 @@
                     let delivered = false;
                     for (let i = 0; i < this.orders.length; i++) {
                         if (this.orders[i].name === dishName) {
-                            this.score += 20 + Math.floor(this.orders[i].time / 2);
+                            const ord        = this.orders[i];
+                            const isP        = !!ord.is_priority;
+                            const is3        = !!ord.is_three_orb;
+                            const base       = is3 ? 40 : 20;
+                            const timeBonus  = Math.floor(ord.time / (is3 ? 1.5 : 2));
+                            this.score      += (base + timeBonus) * (isP ? 2 : 1);
                             this.orders.splice(i, 1);
                             delivered = true; break;
                         }
@@ -898,7 +933,7 @@
                 // 7 — PROXIMITY: Crate 1
                 { text: "Head to one of the brown Crates in the middle.", ok: false, proximity: "Crate 1", target: "Crate 1" },
                 // 8 — ACTION: processed orb loaded onto vessel (bundle >= 1)
-                { text: "Pick up a Vessel from the crate, then press SPACE on the crate while holding it to load the orb.", ok: false, target: "Crate 1" },
+                { text: "Press SPACE on the crate while near it to load the orb onto the vessel.", ok: false, target: "Crate 1" },
                 // 9 — OK (checkpoint before second orb)
                 { text: "One blue orb loaded! Now do the same for a second blue orb — pick it up from the Calm Dispenser, process it, and load it onto the same vessel.", ok: true, target: null },
                 // 10 — OK (Vessel Return tip)
@@ -908,17 +943,17 @@
                 // 12 — ACTION: vessel has bundle >= 2
                 { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
                 // 13 — PROXIMITY: Dream Visualizer
-                { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
+                { text: "Both orbs loaded! Pick up the vessel and head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
                 // 14 — ACTION: DV starts cooking
-                { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
+                { text: "Press SPACE to start cooking the dream.", ok: false, target: "Dream Visualizer" },
                 // 15 — ACTION: DV finishes
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
                 // 16 — ACTION: any vessel with dishName ready
-                { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
+                { text: "Dream orb ready! Pick up a vessel and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
                 // 17 — PROXIMITY: Gateway
                 { text: "Bring the vessel to the Gateway on the bottom-left.", ok: false, proximity: "Gateway", target: "Gateway" },
                 // 18 — ACTION: first order delivered
-                { text: "Press SPACE at the Gateway to deliver Deep Calm!", ok: false, target: "Gateway" },
+                { text: "Press SPACE at the Gateway to deliver the Deep Calm order!", ok: false, target: "Gateway" },
                 // 19 — OK (solo order checkpoint)
                 { text: "Well done! Now complete the second order on your own — Joyful Slumber needs a golden orb and a blue orb. You know what to do!", ok: true, target: null },
                 // 20 — ACTION: both orders gone
@@ -1099,7 +1134,7 @@
 
             const nextBtn = document.getElementById('nextLevelBtn');
             document.getElementById('mainMenuBtn').textContent = 'Dream Atlas';
-            if (passed && this.currentLevel < 3) {
+            if (passed && this.currentLevel < 4) {
                 nextBtn.textContent = 'Next Dream →';
             } else if (passed) {
                 nextBtn.textContent = 'All Dreams Woven ✦';
@@ -1120,14 +1155,41 @@
 
                 for (let i = 0; i < this.orders.length; i++) {
                     const o = this.orders[i], tx = 10+i*175;
-                    drawRect(this.ctx, tx, 10, 165, 75, [50,50,80], 8);
-                    this.ctx.font = 'bold 14px Arial';
+                    const isPriority   = !!o.is_priority;
+                    const isThreeOrb   = !!o.is_three_orb;
+                    // Priority: vivid red-orange panel; 3-orb: slightly brighter purple panel
+                    const panelColor   = isPriority ? [80,20,20] : isThreeOrb ? [60,40,90] : [50,50,80];
+                    const borderColor  = isPriority ? [255,80,30] : isThreeOrb ? [180,70,255] : null;
+
+                    drawRect(this.ctx, tx, 10, 165, 75, panelColor, 8);
+
+                    if (borderColor) {
+                        this.ctx.strokeStyle = rgbToString(borderColor);
+                        this.ctx.lineWidth = 2;
+                        roundRect(this.ctx, tx, 10, 165, 75, 8);
+                        this.ctx.stroke();
+                    }
+
+                    // Priority badge
+                    if (isPriority) {
+                        this.ctx.font = 'bold 9px Arial';
+                        this.ctx.fillStyle = rgbToString([255,80,30]);
+                        this.ctx.textAlign = 'left';
+                        this.ctx.fillText('⚡ PRIORITY', tx+8, 22);
+                    }
+
+                    this.ctx.font = 'bold 12px Arial';
                     this.ctx.fillStyle = rgbToString(WHITE);
-                    this.ctx.fillText(o.name, tx+8, 30);
+                    this.ctx.textAlign = 'left';
+                    this.ctx.fillText(o.name, tx+8, isPriority ? 34 : 28);
+
+                    const dotY = isPriority ? 48 : 44;
                     for (let j = 0; j < o.recipe.length; j++)
-                        drawCircle(this.ctx, tx+18+j*25, 42, 8, o.recipe[j]);
+                        drawCircle(this.ctx, tx+14+j*22, dotY, 7, o.recipe[j]);
+
                     const pct = Math.max(0, o.time/o.max);
-                    drawRect(this.ctx, tx+8, 62, 150*pct, 6, pct<0.25?[255,80,80]:TEAL, 3);
+                    const barColor = pct < 0.25 ? [255,80,80] : isPriority ? [255,100,40] : TEAL;
+                    drawRect(this.ctx, tx+8, 65, 150*pct, 6, barColor, 3);
                 }
 
                 if (this.redFlash > 0) {

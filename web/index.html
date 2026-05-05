@@ -71,9 +71,10 @@
             <div class="title-eyebrow">the dream atlas</div>
             <h2 class="game-title" style="font-size:2.6rem;">Choose Your Dream</h2>
             <p class="level-select-hint" id="levelSelectHint">Only the host may choose.</p>
-            <div class="level-grid">
+            <!-- Row 1: Tutorial + Level 1 -->
+            <div class="level-grid level-grid-top">
 
-                <div class="level-card" data-level="tutorial">
+                <div class="level-card level-card-tutorial" data-level="tutorial">
                     <div class="level-card-glow"></div>
                     <div class="level-card-orbs">
                         <span class="lc-orb" style="--c:0,255,200;  --lx:15%; --ly:40%"></span>
@@ -99,12 +100,17 @@
                     <div class="level-card-content">
                         <div class="level-number">I</div>
                         <div class="level-name">The First Dream</div>
-                        <div class="level-desc">Learn the art of weaving.<br>Two orbs, one vision.</div>
+                        <div class="level-desc">Learn the art of weaving.</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="1">☆☆☆</div>
                         </div>
                     </div>
                 </div>
+
+            </div>
+
+            <!-- Row 2: Levels 2, 3, 4 -->
+            <div class="level-grid level-grid-bottom">
 
                 <div class="level-card" data-level="2">
                     <div class="level-card-glow"></div>
@@ -116,7 +122,7 @@
                     <div class="level-card-content">
                         <div class="level-number">II</div>
                         <div class="level-name">The Deep Sleep</div>
-                        <div class="level-desc">The stations shift.<br>The pressure rises.</div>
+                        <div class="level-desc">The stations shift.</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="2">☆☆☆</div>
                         </div>
@@ -133,9 +139,26 @@
                     <div class="level-card-content">
                         <div class="level-number">III</div>
                         <div class="level-name">The Waking Fever</div>
-                        <div class="level-desc">Three orbs. One dream.<br>The weave grows complex.</div>
+                        <div class="level-desc">Introducing three orb orders</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="3">☆☆☆</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="level-card" data-level="4">
+                    <div class="level-card-glow"></div>
+                    <div class="level-card-orbs">
+                        <span class="lc-orb" style="--c:255,80,30;  --lx:10%; --ly:25%"></span>
+                        <span class="lc-orb" style="--c:255,215,0;  --lx:60%; --ly:60%"></span>
+                        <span class="lc-orb" style="--c:180,70,255; --lx:80%; --ly:30%"></span>
+                    </div>
+                    <div class="level-card-content">
+                        <div class="level-number">IV</div>
+                        <div class="level-name">The Restless Night</div>
+                        <div class="level-desc">Priority orders rush in.</div>
+                        <div class="level-footer">
+                            <div class="level-stars" data-level="4">☆☆☆</div>
                         </div>
                     </div>
                 </div>
