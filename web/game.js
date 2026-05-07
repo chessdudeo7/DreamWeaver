@@ -34,7 +34,7 @@
 
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
 
-    // ── Star persistence (localStorage) ──────────────────────────────────────
+    // ── Star + Score persistence (localStorage) ─────────────────────────────
     function getBestStars(levelKey) {
         try { return parseInt(localStorage.getItem('dw_stars_' + levelKey) || '0'); }
         catch(e) { return 0; }
@@ -43,6 +43,16 @@
         try {
             const prev = getBestStars(levelKey);
             if (stars > prev) localStorage.setItem('dw_stars_' + levelKey, stars);
+        } catch(e) {}
+    }
+    function getBestScore(levelKey) {
+        try { return parseInt(localStorage.getItem('dw_score_' + levelKey) || '0'); }
+        catch(e) { return 0; }
+    }
+    function setBestScore(levelKey, score) {
+        try {
+            const prev = getBestScore(levelKey);
+            if (score > prev) localStorage.setItem('dw_score_' + levelKey, score);
         } catch(e) {}
     }
     function refreshStarDisplays() {
@@ -54,6 +64,11 @@
             } else {
                 el.textContent = [0,1,2].map(i => i < best ? '★' : '☆').join('');
             }
+        });
+        document.querySelectorAll('.level-highscore[data-level]').forEach(el => {
+            const key = el.dataset.level;
+            const best = getBestScore(key);
+            el.textContent = best > 0 ? 'best: ' + best : '';
         });
     }
 
@@ -83,6 +98,9 @@
         ctx.quadraticCurveTo(x, y, x+r, y);
         ctx.closePath();
     }
+
+    // ── Lerp helper for smooth remote player movement ──
+    function lerp(a, b, t) { return a + (b - a) * t; }
 
     // ========== ITEM ==========
     class Item {
@@ -232,6 +250,8 @@
             this.x = x; this.y = y; this.w = 40; this.h = 40;
             this.speed = 6;
             this.color = color; this.heldItem = null;
+            // Interpolation targets for remote players
+            this.targetX = x; this.targetY = y;
         }
 
         move(dx, dy, stations) {
@@ -298,8 +318,13 @@
             // Tutorial state
             this.isTutorial   = false;
             this.tutStep      = 0;
-            this.tutWaiting   = false;   // true = action step, player can move
-            this.tutMoveLocked = false;  // true = OK step, movement blocked
+            this.tutWaiting   = false;
+            this.tutMoveLocked = false;
+
+            // Leaderboard state
+            this.leaderboardData  = [];   // fetched from server
+            this.leaderboardLevel = 'total'; // 'total' | '1' | '2' | '3' | '4'
+            this.levelScores      = {};   // { levelKey: score } accumulated this session
 
             this.setupEventListeners();
         }
@@ -329,6 +354,14 @@
             document.getElementById('startGameBtn').addEventListener('click', () => this.startGame());
             document.getElementById('nextLevelBtn').addEventListener('click', () => this.nextLevel());
             document.getElementById('mainMenuBtn').addEventListener('click', () => this.goToMainMenu());
+            document.getElementById('leaderboardBtn').addEventListener('click', () => this.openLeaderboard());
+            document.getElementById('lbCloseBtn').addEventListener('click', () => this.closeLeaderboard());
+            document.getElementById('lbSubmitBtn').addEventListener('click', () => this.submitLeaderboard());
+            document.getElementById('lbTabTotal').addEventListener('click', () => this.setLbTab('total'));
+            ['1','2','3','4'].forEach(l => {
+                const btn = document.getElementById('lbTab' + l);
+                if (btn) btn.addEventListener('click', () => this.setLbTab(l));
+            });
 
             document.getElementById('playerName').addEventListener('input', (e) => {
                 this.playerName = e.target.value.substring(0, 12);
@@ -689,6 +722,15 @@
             const dy = moveLocked ? 0 : (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
             if (this.player) this.player.move(dx, dy, this.stations);
 
+            // Interpolate remote players toward their broadcast target positions
+            // t=0.35 gives smooth, responsive movement at 60fps
+            for (const [id, pl] of Object.entries(this.playersDict)) {
+                if (id != this.myId) {
+                    pl.x = lerp(pl.x, pl.targetX, 0.35);
+                    pl.y = lerp(pl.y, pl.targetY, 0.35);
+                }
+            }
+
             // Network sync — lf_holding piggybacked every 16ms
             const now = Date.now();
             if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
@@ -933,7 +975,7 @@
                 // 7 — PROXIMITY: Crate 1
                 { text: "Head to one of the brown Crates in the middle.", ok: false, proximity: "Crate 1", target: "Crate 1" },
                 // 8 — ACTION: processed orb loaded onto vessel (bundle >= 1)
-                { text: "Press SPACE on the crate while near it to load the orb onto the vessel.", ok: false, target: "Crate 1" },
+                { text: "Pick up a Vessel from the crate, then press SPACE on the crate while holding it to load the orb.", ok: false, target: "Crate 1" },
                 // 9 — OK (checkpoint before second orb)
                 { text: "One blue orb loaded! Now do the same for a second blue orb — pick it up from the Calm Dispenser, process it, and load it onto the same vessel.", ok: true, target: null },
                 // 10 — OK (Vessel Return tip)
@@ -943,17 +985,17 @@
                 // 12 — ACTION: vessel has bundle >= 2
                 { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
                 // 13 — PROXIMITY: Dream Visualizer
-                { text: "Both orbs loaded! Pick up the vessel and head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
+                { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
                 // 14 — ACTION: DV starts cooking
-                { text: "Press SPACE to start cooking the dream.", ok: false, target: "Dream Visualizer" },
+                { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
                 // 15 — ACTION: DV finishes
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
                 // 16 — ACTION: any vessel with dishName ready
-                { text: "Dream orb ready! Pick up a vessel and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
+                { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
                 // 17 — PROXIMITY: Gateway
                 { text: "Bring the vessel to the Gateway on the bottom-left.", ok: false, proximity: "Gateway", target: "Gateway" },
                 // 18 — ACTION: first order delivered
-                { text: "Press SPACE at the Gateway to deliver the Deep Calm order!", ok: false, target: "Gateway" },
+                { text: "Press SPACE at the Gateway to deliver Deep Calm!", ok: false, target: "Gateway" },
                 // 19 — OK (solo order checkpoint)
                 { text: "Well done! Now complete the second order on your own — Joyful Slumber needs a golden orb and a blue orb. You know what to do!", ok: true, target: null },
                 // 20 — ACTION: both orders gone
@@ -1101,6 +1143,93 @@
 
 
 
+                // ── LEADERBOARD ──────────────────────────────────────────────────────
+
+        openLeaderboard() {
+            document.getElementById('leaderboardOverlay').style.display = 'flex';
+            // Pre-fill party name if host
+            if (this.isHost) {
+                document.getElementById('lbPartyNameRow').style.display = 'flex';
+                document.getElementById('lbSubmitBtn').style.display = 'block';
+            } else {
+                document.getElementById('lbPartyNameRow').style.display = 'none';
+                document.getElementById('lbSubmitBtn').style.display = 'none';
+            }
+            this.fetchLeaderboard();
+        }
+
+        closeLeaderboard() {
+            document.getElementById('leaderboardOverlay').style.display = 'none';
+        }
+
+        async fetchLeaderboard() {
+            if (!this.network.connected) return;
+            const res = await this.network.send({ action: "LEADERBOARD_GET" });
+            if (res?.action === "LEADERBOARD_DATA") {
+                this.leaderboardData = res.entries || [];
+                this.renderLeaderboard();
+            }
+        }
+
+        async submitLeaderboard() {
+            if (!this.network.connected) return;
+            const partyInput = document.getElementById('lbPartyName');
+            const party = (partyInput.value || 'Anonymous').trim().substring(0, 24);
+            if (!party) { partyInput.focus(); return; }
+            const res = await this.network.send({
+                action: "LEADERBOARD_SUBMIT",
+                party,
+                scores: this.levelScores,
+            });
+            if (res?.action === "LEADERBOARD_DATA") {
+                this.leaderboardData = res.entries || [];
+                this.renderLeaderboard();
+                document.getElementById('lbSubmitBtn').textContent = 'Submitted! ✦';
+                document.getElementById('lbSubmitBtn').disabled = true;
+            }
+        }
+
+        setLbTab(tab) {
+            this.leaderboardLevel = tab;
+            // Update tab active state
+            ['total','1','2','3','4'].forEach(t => {
+                const btn = document.getElementById('lbTab' + (t === 'total' ? 'Total' : t));
+                if (btn) btn.classList.toggle('lb-tab-active', t === tab);
+            });
+            this.renderLeaderboard();
+        }
+
+        renderLeaderboard() {
+            const tbody = document.getElementById('lbTableBody');
+            if (!tbody) return;
+            const tab   = this.leaderboardLevel;
+            const data  = this.leaderboardData;
+
+            // Sort by selected tab
+            const sorted = [...data].sort((a, b) => {
+                const scoreA = tab === 'total' ? a.total : (a.scores[tab] || 0);
+                const scoreB = tab === 'total' ? b.total : (b.scores[tab] || 0);
+                return scoreB - scoreA;
+            }).filter(e => tab === 'total' || (e.scores[tab] || 0) > 0);
+
+            tbody.innerHTML = '';
+            if (sorted.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:24px;">No scores yet for this level.</td></tr>';
+                return;
+            }
+            sorted.slice(0, 20).forEach((e, i) => {
+                const score = tab === 'total' ? e.total : (e.scores[tab] || 0);
+                const medal = i === 0 ? '✦' : i === 1 ? '◈' : i === 2 ? '◇' : (i + 1);
+                const row = document.createElement('tr');
+                row.className = i < 3 ? 'lb-top-' + (i+1) : '';
+                row.innerHTML = `
+                    <td class="lb-rank">${medal}</td>
+                    <td class="lb-party">${e.party}</td>
+                    <td class="lb-score">${score}</td>`;
+                tbody.appendChild(row);
+            });
+        }
+
                 showLevelComplete() {
             document.getElementById('tutorialDialog').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'flex';
@@ -1120,6 +1249,11 @@
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             const passed = stars >= 1;
             setBestStars(String(this.currentLevel), stars);
+            setBestScore(String(this.currentLevel), this.score);
+            // Accumulate for leaderboard (keep best per level this session)
+            const lk = String(this.currentLevel);
+            if (!this.levelScores[lk] || this.score > this.levelScores[lk])
+                this.levelScores[lk] = this.score;
             refreshStarDisplays();
 
             document.getElementById('levelResultText').textContent =
@@ -1277,8 +1411,9 @@
 
                 for (let p of data.players) {
                     if (p.id !== game.myId && game.playersDict[p.id]) {
-                        game.playersDict[p.id].x = p.x;
-                        game.playersDict[p.id].y = p.y;
+                        // Set interpolation targets — actual position lerps each frame
+                        game.playersDict[p.id].targetX = p.x;
+                        game.playersDict[p.id].targetY = p.y;
                         game.playersDict[p.id].heldItem = p.heldItem ? deserializeItem(p.heldItem) : null;
                     }
                 }

@@ -70,7 +70,10 @@
         <div class="ui-panel level-select-panel">
             <div class="title-eyebrow">the dream atlas</div>
             <h2 class="game-title" style="font-size:2.6rem;">Choose Your Dream</h2>
-            <p class="level-select-hint" id="levelSelectHint">Only the host may choose.</p>
+            <div class="level-select-toprow">
+                <p class="level-select-hint" id="levelSelectHint">Only the host may choose.</p>
+                <button id="leaderboardBtn" class="ui-btn btn-lb">✦ Leaderboard</button>
+            </div>
             <!-- Row 1: Tutorial + Level 1 -->
             <div class="level-grid level-grid-top">
 
@@ -100,10 +103,11 @@
                     <div class="level-card-content">
                         <div class="level-number">I</div>
                         <div class="level-name">The First Dream</div>
-                        <div class="level-desc">Learn the art of weaving.</div>
+                        <div class="level-desc">Learn the art of weaving.<br>Two orbs, one vision.</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="1">☆☆☆</div>
                         </div>
+                        <div class="level-highscore" data-level="1"></div>
                     </div>
                 </div>
 
@@ -122,10 +126,11 @@
                     <div class="level-card-content">
                         <div class="level-number">II</div>
                         <div class="level-name">The Deep Sleep</div>
-                        <div class="level-desc">The stations shift.</div>
+                        <div class="level-desc">The stations shift.<br>The pressure rises.</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="2">☆☆☆</div>
                         </div>
+                        <div class="level-highscore" data-level="2"></div>
                     </div>
                 </div>
 
@@ -139,10 +144,11 @@
                     <div class="level-card-content">
                         <div class="level-number">III</div>
                         <div class="level-name">The Waking Fever</div>
-                        <div class="level-desc">Introducing three orb orders</div>
+                        <div class="level-desc">Three orbs. One dream.<br>The weave grows complex.</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="3">☆☆☆</div>
                         </div>
+                        <div class="level-highscore" data-level="3"></div>
                     </div>
                 </div>
 
@@ -156,10 +162,11 @@
                     <div class="level-card-content">
                         <div class="level-number">IV</div>
                         <div class="level-name">The Restless Night</div>
-                        <div class="level-desc">Priority orders rush in.</div>
+                        <div class="level-desc">Priority orders rush in.<br>Move fast. Dream faster.</div>
                         <div class="level-footer">
                             <div class="level-stars" data-level="4">☆☆☆</div>
                         </div>
+                        <div class="level-highscore" data-level="4"></div>
                     </div>
                 </div>
 
@@ -176,6 +183,48 @@
             <div class="complete-buttons">
                 <button id="mainMenuBtn" class="ui-btn btn-ghost">Dream Atlas</button>
                 <button id="nextLevelBtn" class="ui-btn btn-teal">Continue →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── LEADERBOARD OVERLAY ── -->
+    <div id="leaderboardOverlay" class="ui-overlay" style="display:none;">
+        <div class="ui-panel lb-panel">
+            <div class="lb-header">
+                <div class="title-eyebrow">hall of dreams</div>
+                <h2 class="game-title" style="font-size:2.4rem;">Leaderboard</h2>
+                <button id="lbCloseBtn" class="lb-close">✕</button>
+            </div>
+
+            <!-- Party name + submit (host only) -->
+            <div id="lbPartyNameRow" class="lb-party-row">
+                <input id="lbPartyName" type="text" placeholder="your party name" maxlength="24" class="ui-input lb-name-input">
+                <button id="lbSubmitBtn" class="ui-btn btn-teal lb-submit">Add to Leaderboard</button>
+            </div>
+
+            <!-- Tab bar -->
+            <div class="lb-tabs">
+                <button id="lbTabTotal" class="lb-tab lb-tab-active">All Levels</button>
+                <button id="lbTab1" class="lb-tab">Level I</button>
+                <button id="lbTab2" class="lb-tab">Level II</button>
+                <button id="lbTab3" class="lb-tab">Level III</button>
+                <button id="lbTab4" class="lb-tab">Level IV</button>
+            </div>
+
+            <!-- Table -->
+            <div class="lb-table-wrap">
+                <table class="lb-table">
+                    <thead>
+                        <tr>
+                            <th class="lb-rank">#</th>
+                            <th class="lb-party">Party</th>
+                            <th class="lb-score">Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lbTableBody">
+                        <tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:24px;">Loading…</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

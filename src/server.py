@@ -39,6 +39,102 @@ rooms = {}
 client_to_room = {}
 room_connections = {}
 
+import asyncpg
+
+# ── Database ────────────────────────────────────────────────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:NB7Ve5qA6eDUFZ1V@db.cpudxfisekjxneuzdclp.supabase.co:5432/postgres")
+
+db_pool = None  # asyncpg connection pool, initialised on startup
+
+async def init_db():
+    """Create the leaderboard table if it doesn't exist."""
+    global db_pool
+    if not DATABASE_URL:
+        print("No DATABASE_URL set — leaderboard will be in-memory only.")
+        return
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS leaderboard (
+                    id         SERIAL PRIMARY KEY,
+                    party      TEXT NOT NULL,
+                    score_1    INTEGER DEFAULT 0,
+                    score_2    INTEGER DEFAULT 0,
+                    score_3    INTEGER DEFAULT 0,
+                    score_4    INTEGER DEFAULT 0,
+                    total      INTEGER DEFAULT 0,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+        print("Database connected and leaderboard table ready.")
+    except Exception as e:
+        print(f"Database init failed: {e} — falling back to in-memory.")
+        db_pool = None
+
+async def db_get_leaderboard():
+    """Fetch top 50 entries sorted by total desc."""
+    if db_pool is None:
+        return _mem_leaderboard_sorted()
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT party, score_1, score_2, score_3, score_4, total "
+                "FROM leaderboard ORDER BY total DESC LIMIT 50"
+            )
+            return [_row_to_entry(r) for r in rows]
+    except Exception as e:
+        print(f"DB read error: {e}")
+        return _mem_leaderboard_sorted()
+
+async def db_submit_leaderboard(party, scores):
+    """Insert a new leaderboard entry."""
+    s1 = scores.get("1", 0) or scores.get(1, 0)
+    s2 = scores.get("2", 0) or scores.get(2, 0)
+    s3 = scores.get("3", 0) or scores.get(3, 0)
+    s4 = scores.get("4", 0) or scores.get(4, 0)
+    total = s1 + s2 + s3 + s4
+    if db_pool is None:
+        # In-memory fallback
+        _mem_leaderboard.append({
+            "party": party,
+            "scores": {"1": s1, "2": s2, "3": s3, "4": s4},
+            "total": total,
+        })
+        _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
+        if len(_mem_leaderboard) > 100:
+            del _mem_leaderboard[100:]
+        return _mem_leaderboard_sorted()
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO leaderboard (party, score_1, score_2, score_3, score_4, total) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                party, s1, s2, s3, s4, total
+            )
+        return await db_get_leaderboard()
+    except Exception as e:
+        print(f"DB write error: {e}")
+        return _mem_leaderboard_sorted()
+
+def _row_to_entry(row):
+    return {
+        "party": row["party"],
+        "scores": {
+            "1": row["score_1"],
+            "2": row["score_2"],
+            "3": row["score_3"],
+            "4": row["score_4"],
+        },
+        "total": row["total"],
+    }
+
+# In-memory fallback (used when DATABASE_URL not set)
+_mem_leaderboard = []
+
+def _mem_leaderboard_sorted():
+    return sorted(_mem_leaderboard, key=lambda e: e["total"], reverse=True)[:50]
+
 
 class TutorialState:
     """Tracks synced tutorial progress for a room (20 steps, indices 0-19)."""
@@ -761,6 +857,16 @@ async def handle_client(websocket):
                                 room_connections[current_room].remove(conn)
                         continue
 
+            elif action == "LEADERBOARD_GET":
+                entries = await db_get_leaderboard()
+                response = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
+
+            elif action == "LEADERBOARD_SUBMIT":
+                party_name = request.get("party", "Unknown")[:24]
+                scores     = request.get("scores", {})
+                entries    = await db_submit_leaderboard(party_name, scores)
+                response   = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
+
             await websocket.send(make_response(response, rid))
 
     except websockets.exceptions.ConnectionClosed:
@@ -783,6 +889,7 @@ async def handle_client(websocket):
 
 
 async def main():
+    await init_db()
     print(f"WebSocket server starting on {HOST}:{PORT}")
     async with websockets.serve(handle_client, HOST, PORT):
         await asyncio.Future()
