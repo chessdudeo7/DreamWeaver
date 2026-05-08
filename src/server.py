@@ -1,4 +1,5 @@
 import asyncio
+import asyncpg
 import websockets
 import json
 import random
@@ -39,12 +40,9 @@ rooms = {}
 client_to_room = {}
 room_connections = {}
 
-import asyncpg
-
 # ── Database ────────────────────────────────────────────────────────────────
 # Set DATABASE_URL env var to your Supabase connection string:
-# postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:NB7Ve5qA6eDUFZ1V@db.cpudxfisekjxneuzdclp.supabase.co:5432/postgres")
 
 db_pool = None  # asyncpg connection pool, initialised on startup
 
