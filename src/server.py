@@ -41,25 +41,6 @@ rooms = {}
 client_to_room = {}
 room_connections = {}
 
-# ── Database ────────────────────────────────────────────────────────────────
-# DATABASE_URL must be set as an environment variable — NEVER hardcode credentials.
-#
-# HOW TO SET THIS ON RENDER:
-#   1. Go to your Render service → "Environment" tab in the left sidebar
-#   2. Add environment variable:
-#        Key:   DATABASE_URL
-#        Value: your Supabase connection string (see below)
-#   3. Save and redeploy
-#
-# HOW TO GET YOUR SUPABASE CONNECTION STRING:
-#   1. supabase.com → your project → Settings → Database
-#   2. Under "Connection string", select "URI" mode
-#   3. Copy the string, which looks like:
-#        postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
-#   4. Use port 5432 (direct), NOT 6543 (pooler) — asyncpg requires a direct connection
-#
-# SECURITY: If your password was ever committed to git or shared in chat, rotate it now:
-#   Supabase dashboard → Settings → Database → Reset database password
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 db_pool = None
@@ -71,9 +52,6 @@ async def init_db():
         print("No DATABASE_URL set — leaderboard will be in-memory only (data lost on restart).")
         return
     try:
-        # ssl='require' is mandatory for Supabase.
-        # Without it, connections are silently rejected and the server falls back
-        # to in-memory storage — which is why scores disappear on restart.
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE  # needed for Supabase's certificate chain
@@ -929,10 +907,64 @@ async def handle_client(websocket):
         print(f"Connection closed: {client_id}")
 
 
+async def health_check(websocket):
+    """
+    Render sends periodic HTTP HEAD/GET requests to keep the service alive.
+    websockets rejects these because they aren't valid WebSocket upgrades.
+    This handler intercepts them and sends a plain HTTP 200 response instead,
+    silencing the flood of InvalidMessage errors in the logs.
+    """
+    try:
+        # Read the raw HTTP request line
+        request_line = await asyncio.wait_for(websocket.reader.readline(), timeout=2.0)
+        if request_line.upper().startswith((b"HEAD", b"GET")):
+            # Drain the rest of the headers
+            while True:
+                line = await asyncio.wait_for(websocket.reader.readline(), timeout=1.0)
+                if line in (b"\r\n", b"\n", b""):
+                    break
+            # Send a minimal HTTP 200
+            websocket.writer.write(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Length: 2\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"OK"
+            )
+            await websocket.writer.drain()
+    except Exception:
+        pass
+
+
+async def handle_connection(websocket):
+    """Route: WebSocket upgrade goes to game handler, plain HTTP goes to health check."""
+    # websockets >= 12 passes the HTTP request in websocket.request
+    # If it's already been upgraded, handle it as a game client.
+    # The HEAD/GET health checks never complete the upgrade, so we never reach here
+    # for them — websockets raises InvalidMessage before calling this handler.
+    await handle_client(websocket)
+
+
 async def main():
+    print(f"DATABASE_URL set: {bool(DATABASE_URL)}")
     await init_db()
     print(f"WebSocket server starting on {HOST}:{PORT}")
-    async with websockets.serve(handle_client, HOST, PORT):
+
+    # process_request intercepts raw HTTP before the WebSocket handshake.
+    # We use it to respond to Render's health check pings with HTTP 200
+    # instead of letting websockets reject them with InvalidMessage errors.
+    async def process_request(connection, request):
+        if request.method in ("HEAD", "GET") and "Upgrade" not in request.headers:
+            from websockets.http11 import Response
+            from websockets.datastructures import Headers
+            return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+        return None  # proceed with normal WebSocket handshake
+
+    async with websockets.serve(
+        handle_client,
+        HOST, PORT,
+        process_request=process_request
+    ):
         await asyncio.Future()
 
 
