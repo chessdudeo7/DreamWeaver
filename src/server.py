@@ -42,7 +42,9 @@ room_connections = {}
 import asyncpg
 
 # ── Database ────────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:NB7Ve5qA6eDUFZ1V@db.cpudxfisekjxneuzdclp.supabase.co:5432/postgres")
+# Set DATABASE_URL env var to your Supabase connection string:
+# postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 db_pool = None  # asyncpg connection pool, initialised on startup
 
@@ -79,7 +81,7 @@ async def db_get_leaderboard():
     try:
         async with db_pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT party, score_1, score_2, score_3, score_4, total "
+                "SELECT id, party, score_1, score_2, score_3, score_4, total "
                 "FROM leaderboard ORDER BY total DESC LIMIT 50"
             )
             return [_row_to_entry(r) for r in rows]
@@ -88,15 +90,17 @@ async def db_get_leaderboard():
         return _mem_leaderboard_sorted()
 
 async def db_submit_leaderboard(party, scores):
-    """Insert a new leaderboard entry."""
-    s1 = scores.get("1", 0) or scores.get(1, 0)
-    s2 = scores.get("2", 0) or scores.get(2, 0)
-    s3 = scores.get("3", 0) or scores.get(3, 0)
-    s4 = scores.get("4", 0) or scores.get(4, 0)
+    """Insert a new leaderboard entry. Returns (entries, new_id)."""
+    s1 = int(scores.get("1", 0) or scores.get(1, 0))
+    s2 = int(scores.get("2", 0) or scores.get(2, 0))
+    s3 = int(scores.get("3", 0) or scores.get(3, 0))
+    s4 = int(scores.get("4", 0) or scores.get(4, 0))
     total = s1 + s2 + s3 + s4
     if db_pool is None:
-        # In-memory fallback
+        import random as _r
+        fake_id = _r.randint(100000, 999999)
         _mem_leaderboard.append({
+            "id": fake_id,
             "party": party,
             "scores": {"1": s1, "2": s2, "3": s3, "4": s4},
             "total": total,
@@ -104,21 +108,50 @@ async def db_submit_leaderboard(party, scores):
         _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
         if len(_mem_leaderboard) > 100:
             del _mem_leaderboard[100:]
-        return _mem_leaderboard_sorted()
+        return _mem_leaderboard_sorted(), fake_id
+    try:
+        async with db_pool.acquire() as conn:
+            new_id = await conn.fetchval(
+                "INSERT INTO leaderboard (party, score_1, score_2, score_3, score_4, total) "
+                "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                party, s1, s2, s3, s4, total
+            )
+        return await db_get_leaderboard(), new_id
+    except Exception as e:
+        print(f"DB write error: {e}")
+        return _mem_leaderboard_sorted(), None
+
+async def db_update_leaderboard(row_id, party, scores):
+    """Update an existing leaderboard entry by id. Returns (entries, row_id)."""
+    s1 = int(scores.get("1", 0) or scores.get(1, 0))
+    s2 = int(scores.get("2", 0) or scores.get(2, 0))
+    s3 = int(scores.get("3", 0) or scores.get(3, 0))
+    s4 = int(scores.get("4", 0) or scores.get(4, 0))
+    total = s1 + s2 + s3 + s4
+    if db_pool is None:
+        for e in _mem_leaderboard:
+            if e.get("id") == row_id:
+                e["party"] = party
+                e["scores"] = {"1": s1, "2": s2, "3": s3, "4": s4}
+                e["total"] = total
+                break
+        _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
+        return _mem_leaderboard_sorted(), row_id
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO leaderboard (party, score_1, score_2, score_3, score_4, total) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
-                party, s1, s2, s3, s4, total
+                "UPDATE leaderboard SET party=$1, score_1=$2, score_2=$3, score_3=$4, "
+                "score_4=$5, total=$6 WHERE id=$7",
+                party, s1, s2, s3, s4, total, row_id
             )
-        return await db_get_leaderboard()
+        return await db_get_leaderboard(), row_id
     except Exception as e:
-        print(f"DB write error: {e}")
-        return _mem_leaderboard_sorted()
+        print(f"DB update error: {e}")
+        return _mem_leaderboard_sorted(), row_id
 
 def _row_to_entry(row):
     return {
+        "id":    row["id"],
         "party": row["party"],
         "scores": {
             "1": row["score_1"],
@@ -864,8 +897,17 @@ async def handle_client(websocket):
             elif action == "LEADERBOARD_SUBMIT":
                 party_name = request.get("party", "Unknown")[:24]
                 scores     = request.get("scores", {})
-                entries    = await db_submit_leaderboard(party_name, scores)
-                response   = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
+                entries, new_id = await db_submit_leaderboard(party_name, scores)
+                response = {"status": "success", "action": "LEADERBOARD_DATA",
+                            "entries": entries, "submitted_id": new_id}
+
+            elif action == "LEADERBOARD_UPDATE":
+                row_id     = request.get("id")
+                party_name = request.get("party", "Unknown")[:24]
+                scores     = request.get("scores", {})
+                entries, upd_id = await db_update_leaderboard(row_id, party_name, scores)
+                response = {"status": "success", "action": "LEADERBOARD_DATA",
+                            "entries": entries, "submitted_id": upd_id}
 
             await websocket.send(make_response(response, rid))
 

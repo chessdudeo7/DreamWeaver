@@ -34,30 +34,28 @@
 
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
 
-    // ── Star + Score persistence (localStorage) ─────────────────────────────
+    // ── Star + Score persistence (session-only, resets on page load) ──────────
+    // We use a plain JS object instead of localStorage so scores reset every session.
+    const _sessionStars  = {};
+    const _sessionScores = {};
+
     function getBestStars(levelKey) {
-        try { return parseInt(localStorage.getItem('dw_stars_' + levelKey) || '0'); }
-        catch(e) { return 0; }
+        return _sessionStars[levelKey] || 0;
     }
     function setBestStars(levelKey, stars) {
-        try {
-            const prev = getBestStars(levelKey);
-            if (stars > prev) localStorage.setItem('dw_stars_' + levelKey, stars);
-        } catch(e) {}
+        if (stars > (_sessionStars[levelKey] || 0))
+            _sessionStars[levelKey] = stars;
     }
     function getBestScore(levelKey) {
-        try { return parseInt(localStorage.getItem('dw_score_' + levelKey) || '0'); }
-        catch(e) { return 0; }
+        return _sessionScores[levelKey] || 0;
     }
     function setBestScore(levelKey, score) {
-        try {
-            const prev = getBestScore(levelKey);
-            if (score > prev) localStorage.setItem('dw_score_' + levelKey, score);
-        } catch(e) {}
+        if (score > (_sessionScores[levelKey] || 0))
+            _sessionScores[levelKey] = score;
     }
     function refreshStarDisplays() {
         document.querySelectorAll('.level-stars[data-level]').forEach(el => {
-            const key = el.dataset.level;
+            const key  = el.dataset.level;
             const best = getBestStars(key);
             if (key === 'tutorial') {
                 el.textContent = best >= 1 ? '★' : '☆';
@@ -66,9 +64,10 @@
             }
         });
         document.querySelectorAll('.level-highscore[data-level]').forEach(el => {
-            const key = el.dataset.level;
+            const key  = el.dataset.level;
             const best = getBestScore(key);
-            el.textContent = best > 0 ? 'best: ' + best : '';
+            // Always show "best: X" — starts at 0 and climbs
+            el.textContent = 'best: ' + best;
         });
     }
 
@@ -322,9 +321,11 @@
             this.tutMoveLocked = false;
 
             // Leaderboard state
-            this.leaderboardData  = [];   // fetched from server
-            this.leaderboardLevel = 'total'; // 'total' | '1' | '2' | '3' | '4'
+            this.leaderboardData  = [];
+            this.leaderboardLevel = 'total';
             this.levelScores      = {};   // { levelKey: score } accumulated this session
+            this.lbSubmittedId    = null; // DB row id of this session's submission (for update)
+            this.lbSubmittedParty = null; // party name used when submitting
 
             this.setupEventListeners();
         }
@@ -1147,13 +1148,23 @@
 
         openLeaderboard() {
             document.getElementById('leaderboardOverlay').style.display = 'flex';
-            // Pre-fill party name if host
+            const btn = document.getElementById('lbSubmitBtn');
             if (this.isHost) {
                 document.getElementById('lbPartyNameRow').style.display = 'flex';
-                document.getElementById('lbSubmitBtn').style.display = 'block';
+                btn.style.display = 'block';
+                btn.disabled = false;
+                if (this.lbSubmittedId !== null) {
+                    // Already submitted this session — offer to update instead
+                    btn.textContent = 'Update Score';
+                    // Pre-fill the party name they used
+                    if (this.lbSubmittedParty)
+                        document.getElementById('lbPartyName').value = this.lbSubmittedParty;
+                } else {
+                    btn.textContent = 'Add to Leaderboard';
+                }
             } else {
                 document.getElementById('lbPartyNameRow').style.display = 'none';
-                document.getElementById('lbSubmitBtn').style.display = 'none';
+                btn.style.display = 'none';
             }
             this.fetchLeaderboard();
         }
@@ -1174,18 +1185,41 @@
         async submitLeaderboard() {
             if (!this.network.connected) return;
             const partyInput = document.getElementById('lbPartyName');
-            const party = (partyInput.value || 'Anonymous').trim().substring(0, 24);
+            const party = (partyInput.value || '').trim().substring(0, 24);
             if (!party) { partyInput.focus(); return; }
-            const res = await this.network.send({
-                action: "LEADERBOARD_SUBMIT",
-                party,
-                scores: this.levelScores,
-            });
+
+            const btn = document.getElementById('lbSubmitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+
+            let res;
+            if (this.lbSubmittedId !== null) {
+                // Update existing entry
+                res = await this.network.send({
+                    action: "LEADERBOARD_UPDATE",
+                    id:     this.lbSubmittedId,
+                    party,
+                    scores: this.levelScores,
+                });
+            } else {
+                // First submission this session
+                res = await this.network.send({
+                    action: "LEADERBOARD_SUBMIT",
+                    party,
+                    scores: this.levelScores,
+                });
+            }
+
             if (res?.action === "LEADERBOARD_DATA") {
                 this.leaderboardData = res.entries || [];
                 this.renderLeaderboard();
-                document.getElementById('lbSubmitBtn').textContent = 'Submitted! ✦';
-                document.getElementById('lbSubmitBtn').disabled = true;
+                this.lbSubmittedParty = party;
+                if (res.submitted_id !== undefined) this.lbSubmittedId = res.submitted_id;
+                btn.textContent = 'Submitted! ✦';
+                btn.disabled = true;
+            } else {
+                btn.disabled = false;
+                btn.textContent = this.lbSubmittedId !== null ? 'Update Score' : 'Add to Leaderboard';
             }
         }
 
