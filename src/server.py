@@ -5,6 +5,7 @@ import json
 import random
 import string
 import os
+import ssl
 from time import time
 
 PLAYER_COLORS = [(0, 255, 200), (255, 140, 0), (255, 215, 0), (180, 70, 255)]
@@ -41,19 +42,48 @@ client_to_room = {}
 room_connections = {}
 
 # ── Database ────────────────────────────────────────────────────────────────
-# Set DATABASE_URL env var to your Supabase connection string:
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:NB7Ve5qA6eDUFZ1V@db.cpudxfisekjxneuzdclp.supabase.co:5432/postgres")
+# DATABASE_URL must be set as an environment variable — NEVER hardcode credentials.
+#
+# HOW TO SET THIS ON RENDER:
+#   1. Go to your Render service → "Environment" tab in the left sidebar
+#   2. Add environment variable:
+#        Key:   DATABASE_URL
+#        Value: your Supabase connection string (see below)
+#   3. Save and redeploy
+#
+# HOW TO GET YOUR SUPABASE CONNECTION STRING:
+#   1. supabase.com → your project → Settings → Database
+#   2. Under "Connection string", select "URI" mode
+#   3. Copy the string, which looks like:
+#        postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+#   4. Use port 5432 (direct), NOT 6543 (pooler) — asyncpg requires a direct connection
+#
+# SECURITY: If your password was ever committed to git or shared in chat, rotate it now:
+#   Supabase dashboard → Settings → Database → Reset database password
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-db_pool = None  # asyncpg connection pool, initialised on startup
+db_pool = None
 
 async def init_db():
-    """Create the leaderboard table if it doesn't exist."""
+    """Connect to Postgres and create the leaderboard table if it doesn't exist."""
     global db_pool
     if not DATABASE_URL:
-        print("No DATABASE_URL set — leaderboard will be in-memory only.")
+        print("No DATABASE_URL set — leaderboard will be in-memory only (data lost on restart).")
         return
     try:
-        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        # ssl='require' is mandatory for Supabase.
+        # Without it, connections are silently rejected and the server falls back
+        # to in-memory storage — which is why scores disappear on restart.
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE  # needed for Supabase's certificate chain
+
+        db_pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=1,
+            max_size=5,
+            ssl=ssl_ctx,
+        )
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS leaderboard (
@@ -69,8 +99,9 @@ async def init_db():
             """)
         print("Database connected and leaderboard table ready.")
     except Exception as e:
-        print(f"Database init failed: {e} — falling back to in-memory.")
+        print(f"Database init failed: {e} — falling back to in-memory (data lost on restart).")
         db_pool = None
+
 
 async def db_get_leaderboard():
     """Fetch top 50 entries sorted by total desc."""
@@ -87,6 +118,7 @@ async def db_get_leaderboard():
         print(f"DB read error: {e}")
         return _mem_leaderboard_sorted()
 
+
 async def db_submit_leaderboard(party, scores):
     """Insert a new leaderboard entry. Returns (entries, new_id)."""
     s1 = int(scores.get("1", 0) or scores.get(1, 0))
@@ -95,8 +127,7 @@ async def db_submit_leaderboard(party, scores):
     s4 = int(scores.get("4", 0) or scores.get(4, 0))
     total = s1 + s2 + s3 + s4
     if db_pool is None:
-        import random as _r
-        fake_id = _r.randint(100000, 999999)
+        fake_id = random.randint(100000, 999999)
         _mem_leaderboard.append({
             "id": fake_id,
             "party": party,
@@ -118,6 +149,7 @@ async def db_submit_leaderboard(party, scores):
     except Exception as e:
         print(f"DB write error: {e}")
         return _mem_leaderboard_sorted(), None
+
 
 async def db_update_leaderboard(row_id, party, scores):
     """Update an existing leaderboard entry by id. Returns (entries, row_id)."""
@@ -147,6 +179,7 @@ async def db_update_leaderboard(row_id, party, scores):
         print(f"DB update error: {e}")
         return _mem_leaderboard_sorted(), row_id
 
+
 def _row_to_entry(row):
     return {
         "id":    row["id"],
@@ -160,26 +193,22 @@ def _row_to_entry(row):
         "total": row["total"],
     }
 
-# In-memory fallback (used when DATABASE_URL not set)
+
+# In-memory fallback (used when DATABASE_URL not set or DB unreachable)
 _mem_leaderboard = []
 
 def _mem_leaderboard_sorted():
     return sorted(_mem_leaderboard, key=lambda e: e["total"], reverse=True)[:50]
 
 
+# ── Tutorial State ───────────────────────────────────────────────────────────
+
 class TutorialState:
-    """Tracks synced tutorial progress for a room (20 steps, indices 0-19)."""
+    """Tracks synced tutorial progress for a room (22 steps, indices 0-21)."""
     TOTAL_STEPS = 22
 
-    # Steps where ok=True — ALL players must click OK before advancing
-    # 0=intro, 9=checkpoint, 10=vessel return tip, 11=void siphon tip, 19=solo order, 21=final
     OK_STEPS = {0, 9, 10, 11, 19, 21}
-
-    # Proximity steps — advance when any player enters the target station radius.
-    # Key sent by client is "proximity_<step_index>"
     PROXIMITY_STEPS = {1, 3, 7, 13, 17}
-
-    # Action steps — advance when any player sends the matching key
     ACTION_MAP = {
         "orb_picked":  2,
         "lf_placed":   4,
@@ -217,10 +246,9 @@ class TutorialState:
         if self.all_confirmed():
             self._advance()
             return True
-        return False  # partial — rebroadcast so others see "Waiting..."
+        return False
 
     def try_action(self, key):
-        # Proximity action: key = "proximity_<idx>"
         if key.startswith("proximity_"):
             try:
                 idx = int(key.split("_")[1])
@@ -230,7 +258,6 @@ class TutorialState:
                 self._advance()
                 return True
             return False
-        # Named action
         expected = self.ACTION_MAP.get(key)
         if expected is None or expected != self.step:
             return False
@@ -244,6 +271,8 @@ class TutorialState:
             self.complete = True
             self.step     = self.TOTAL_STEPS - 1
 
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase, k=4))
@@ -276,6 +305,8 @@ async def schedule_vessel_respawn(room_code, delay=5.0):
             vr["vessel_count"] = min(3, vr["vessel_count"] + 1)
     await broadcast_room(room_code, rooms, room_connections)
 
+
+# ── Game State ───────────────────────────────────────────────────────────────
 
 class GameState:
     def __init__(self, level=1, is_tutorial=False):
@@ -381,7 +412,6 @@ class GameState:
                  "is_priority": False, "is_three_orb": False},
             ]
         elif self.level == 4:
-            # Start level 4 with 2 regular + 1 priority
             self._add_order(force_priority=False)
             self._add_order(force_priority=False)
             self._add_order(force_priority=True)
@@ -389,40 +419,24 @@ class GameState:
             for _ in range(3):
                 self._add_order()
 
-    # 2-orb recipe names
-    TWO_ORB_RECIPES = {"Joyful Slumber", "Action Flight", "Deep Calm"}
-    # 3-orb recipe names
+    TWO_ORB_RECIPES   = {"Joyful Slumber", "Action Flight", "Deep Calm"}
     THREE_ORB_RECIPES = {"Vivid Odyssey", "Velvet Abyss", "Ember Vision"}
 
     def _add_order(self, force_priority=False):
         if len(self.orders) >= 5:
             return
-
         if self.level == 4:
-            # Level 4: mix regular + priority, but priority must be 2-orb only
             is_priority = force_priority or (random.random() < 0.4)
-            if is_priority:
-                name = random.choice(list(self.TWO_ORB_RECIPES))
-            else:
-                name = random.choice(list(self.TWO_ORB_RECIPES))  # level 4 keeps 2-orb only for now
+            name = random.choice(list(self.TWO_ORB_RECIPES))
         else:
             is_priority = False
-            # Levels 1-2: only 2-orb recipes
             if self.level <= 2:
                 name = random.choice(list(self.TWO_ORB_RECIPES))
             else:
-                # Level 3: mix 2 and 3 orb
                 name = random.choice(list(RECIPES.keys()))
 
         is_three_orb = name in self.THREE_ORB_RECIPES
-
-        if is_priority:
-            # Priority orders: 2/3 of normal time, flagged
-            base_time = 40.0
-        elif is_three_orb:
-            base_time = 60.0  # 3-orb orders get more time
-        else:
-            base_time = 60.0  # standard
+        base_time = 40.0 if is_priority else 60.0
 
         self.orders.append({
             "name": name,
@@ -472,7 +486,6 @@ class GameState:
         if not self.is_tutorial:
             self.spawn_tick += dt
             if self.spawn_tick > 15 and len(self.orders) < 5:
-                # Level 4: occasionally force a priority order on spawn
                 force_p = (self.level == 4 and random.random() < 0.35)
                 self._add_order(force_priority=force_p)
                 self.spawn_tick = 0
@@ -487,7 +500,7 @@ class GameState:
                 remaining.append(o)
         self.orders = remaining
 
-        # Dream Visualizer — server owns the timer, fires once
+        # Dream Visualizer — server owns timer
         dv = self.stations.get("Dream Visualizer")
         if dv and dv["is_cooking"]:
             dv["progress"] = min(1.0, dv["progress"] + dt / DREAM_VISUALIZER_COOK_TIME)
@@ -503,8 +516,7 @@ class GameState:
                 dv["progress"] = 0.0
                 self.station_locks["Dream Visualizer"] = None
 
-        # Logic Filter — progresses only while players hold space (lf_holding via SYNC)
-        # Speed scales with number of holders: 2 players = 2x, 3 = 3x, etc.
+        # Logic Filter — speed scales with holders
         lf = self.stations.get("Logic Filter")
         if lf and lf["is_cooking"]:
             n = len(self.logic_filter_holders)
@@ -518,7 +530,6 @@ class GameState:
                     lf["progress"] = 0.0
                     lf["active_holders"] = 0
                     self.logic_filter_holders.clear()
-                    # Release lock so any player can pick up
                     self.station_locks["Logic Filter"] = None
         else:
             if lf:
@@ -539,6 +550,8 @@ class GameState:
             d["tutorial"] = tutorial_state.to_dict()
         return d
 
+
+# ── Broadcast ────────────────────────────────────────────────────────────────
 
 async def broadcast_room(current_room, rooms, room_connections):
     if current_room not in room_connections:
@@ -561,6 +574,8 @@ async def broadcast_room(current_room, rooms, room_connections):
     for conn in disconnected:
         room_connections[current_room].remove(conn)
 
+
+# ── Client Handler ───────────────────────────────────────────────────────────
 
 async def handle_client(websocket):
     client_id = id(websocket)
@@ -614,7 +629,6 @@ async def handle_client(websocket):
                                 "game_started": rooms[current_room]["state"] == "PLAYING"}
 
             elif action == "START_GAME":
-                # Marks the room as started so non-host lobby polls know to show level select
                 if current_room and current_room in rooms:
                     rooms[current_room]["state"] = "PLAYING"
                     response = {"status": "success", "action": "GAME_STARTED"}
@@ -623,7 +637,6 @@ async def handle_client(websocket):
                 if current_room and current_room in rooms:
                     level = request.get("level", 1)
                     if level == 0:
-                        # level 0 = return to dream atlas (level select screen)
                         if current_room in room_connections:
                             msg = json.dumps({"status": "level_load", "level": 0})
                             disconnected = []
@@ -635,11 +648,9 @@ async def handle_client(websocket):
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
                         continue
-                    # "tutorial" uses level 1 layout; is_tutorial flag changes order/timer behaviour
                     is_tut = (level == "tutorial")
                     server_level = 1 if is_tut else level
                     rooms[current_room]["game_state"] = GameState(server_level, is_tutorial=is_tut)
-                    # Broadcast level_load to ALL players so everyone enters the game together
                     if current_room in room_connections:
                         msg = json.dumps({"status": "level_load", "level": level})
                         disconnected = []
@@ -663,7 +674,6 @@ async def handle_client(websocket):
                                 p["heldItem"] = request.get("heldItem")
                                 break
 
-                        # lf_holding piggybacked on every SYNC — updates holders set instantly
                         lf_holding = request.get("lf_holding", False)
                         lf = game_state.stations.get("Logic Filter")
                         if lf and lf["is_cooking"]:
@@ -702,6 +712,7 @@ async def handle_client(websocket):
                     if game_state:
                         update_type = request.get("update_type", "item")
                         accepted = False
+                        ts_ref = rooms[current_room].get("tutorial_state")
 
                         if update_type == "vessel_take":
                             vr = game_state.stations.get("Vessel Return")
@@ -716,22 +727,18 @@ async def handle_client(websocket):
                                     lf["held_item"] = request.get("orb_item")
                                     lf["is_cooking"] = True
                                     lf["progress"] = 0.0
-                                    # Do NOT add to holders — progress starts only when
-                                    # lf_holding=true arrives via SYNC
                                     accepted = True
                                 else:
                                     await websocket.send(make_response({
-                                        "status": "rejected",
-                                        "reason": "logic_filter_busy",
-                                        "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
+                                        "status": "rejected", "reason": "logic_filter_busy",
+                                        "game_state": game_state.to_dict(ts_ref),
                                         "players": list(rooms[current_room]["players_dict"].values())
                                     }, rid))
                                     continue
                             else:
                                 await websocket.send(make_response({
-                                    "status": "rejected",
-                                    "reason": "logic_filter_busy",
-                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
+                                    "status": "rejected", "reason": "logic_filter_busy",
+                                    "game_state": game_state.to_dict(ts_ref),
                                     "players": list(rooms[current_room]["players_dict"].values())
                                 }, rid))
                                 continue
@@ -749,7 +756,7 @@ async def handle_client(websocket):
                                 await websocket.send(make_response({
                                     "status": "logic_filter_cancelled",
                                     "returned_orb": orb,
-                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
+                                    "game_state": game_state.to_dict(ts_ref),
                                     "players": list(rooms[current_room]["players_dict"].values())
                                 }, rid))
                                 await broadcast_room(current_room, rooms, room_connections)
@@ -780,9 +787,8 @@ async def handle_client(websocket):
                                     accepted = True
                                 else:
                                     await websocket.send(make_response({
-                                        "status": "rejected",
-                                        "reason": "dream_visualizer_busy",
-                                        "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state")),
+                                        "status": "rejected", "reason": "dream_visualizer_busy",
+                                        "game_state": game_state.to_dict(ts_ref),
                                         "players": list(rooms[current_room]["players_dict"].values())
                                     }, rid))
                                     continue
@@ -807,7 +813,7 @@ async def handle_client(websocket):
                                 msg = json.dumps({
                                     "status": "success",
                                     "players": list(rooms[current_room]["players_dict"].values()),
-                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
+                                    "game_state": game_state.to_dict(ts_ref)
                                 })
                                 disconnected = []
                                 for conn in room_connections[current_room]:
@@ -820,7 +826,6 @@ async def handle_client(websocket):
                             continue
 
             elif action == "TUTORIAL_START":
-                # Host starts the tutorial — initialise TutorialState for the room
                 if current_room and current_room in rooms:
                     player_ids = list(rooms[current_room]["players_dict"].keys())
                     rooms[current_room]["tutorial_state"] = TutorialState(player_ids)
@@ -828,17 +833,15 @@ async def handle_client(websocket):
                 continue
 
             elif action == "TUTORIAL_OK":
-                # A player confirmed the current OK step
                 if current_room and current_room in rooms:
                     ts = rooms[current_room].get("tutorial_state")
                     gs = rooms[current_room].get("game_state")
                     if ts and gs:
-                        ts.try_ok(client_id)   # advances internally when all confirmed
+                        ts.try_ok(client_id)
                         await broadcast_room(current_room, rooms, room_connections)
                 continue
 
             elif action == "TUTORIAL_ACTION":
-                # Any player completed a tutorial action
                 if current_room and current_room in rooms:
                     ts = rooms[current_room].get("tutorial_state")
                     gs = rooms[current_room].get("game_state")
@@ -857,13 +860,11 @@ async def handle_client(websocket):
                         delivered = False
                         for i, order in enumerate(game_state.orders):
                             if order["name"] == dish_name:
-                                is_priority   = order.get("is_priority", False)
-                                is_three_orb  = order.get("is_three_orb", False)
-                                # Base points: 3-orb = 40, 2-orb = 20
-                                base = 40 if is_three_orb else 20
-                                # Time bonus: scaled to order max so both feel proportional
-                                time_bonus = int(order["time"] / (1.5 if is_three_orb else 2))
-                                points = (base + time_bonus) * (2 if is_priority else 1)
+                                is_priority  = order.get("is_priority", False)
+                                is_three_orb = order.get("is_three_orb", False)
+                                base         = 40 if is_three_orb else 20
+                                time_bonus   = int(order["time"] / (1.5 if is_three_orb else 2))
+                                points       = (base + time_bonus) * (2 if is_priority else 1)
                                 game_state.score += points
                                 game_state.orders.pop(i)
                                 delivered = True
