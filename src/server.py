@@ -41,26 +41,11 @@ rooms = {}
 client_to_room = {}
 room_connections = {}
 
-# ── Database ────────────────────────────────────────────────────────────────
-# DATABASE_URL must be set as an environment variable — NEVER hardcode credentials.
-#
-# HOW TO SET THIS ON RENDER:
-#   1. Go to your Render service → "Environment" tab in the left sidebar
-#   2. Add environment variable:
-#        Key:   DATABASE_URL
-#        Value: your Supabase connection string (see below)
-#   3. Save and redeploy
-#
-# HOW TO GET YOUR SUPABASE CONNECTION STRING:
-#   1. supabase.com → your project → Settings → Database
-#   2. Under "Connection string", select "URI" mode
-#   3. Copy the string, which looks like:
-#        postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
-#   4. Use port 5432 (direct), NOT 6543 (pooler) — asyncpg requires a direct connection
-#
-# SECURITY: If your password was ever committed to git or shared in chat, rotate it now:
-#   Supabase dashboard → Settings → Database → Reset database password
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    print("❌ ERROR: DATABASE_URL environment variable is not set!")
+    exit(1)
 
 db_pool = None
 
