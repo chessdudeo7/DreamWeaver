@@ -41,11 +41,7 @@ rooms = {}
 client_to_room = {}
 room_connections = {}
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not DATABASE_URL:
-    print("❌ ERROR: DATABASE_URL environment variable is not set!")
-    exit(1)
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 db_pool = None
 
@@ -57,8 +53,6 @@ async def init_db():
         return
     try:
         # ssl='require' is mandatory for Supabase.
-        # Without it, connections are silently rejected and the server falls back
-        # to in-memory storage — which is why scores disappear on restart.
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE  # needed for Supabase's certificate chain
@@ -915,12 +909,6 @@ async def handle_client(websocket):
 
 
 async def health_check(websocket):
-    """
-    Render sends periodic HTTP HEAD/GET requests to keep the service alive.
-    websockets rejects these because they aren't valid WebSocket upgrades.
-    This handler intercepts them and sends a plain HTTP 200 response instead,
-    silencing the flood of InvalidMessage errors in the logs.
-    """
     try:
         # Read the raw HTTP request line
         request_line = await asyncio.wait_for(websocket.reader.readline(), timeout=2.0)
@@ -945,10 +933,6 @@ async def health_check(websocket):
 
 async def handle_connection(websocket):
     """Route: WebSocket upgrade goes to game handler, plain HTTP goes to health check."""
-    # websockets >= 12 passes the HTTP request in websocket.request
-    # If it's already been upgraded, handle it as a game client.
-    # The HEAD/GET health checks never complete the upgrade, so we never reach here
-    # for them — websockets raises InvalidMessage before calling this handler.
     await handle_client(websocket)
 
 
@@ -957,14 +941,15 @@ async def main():
     await init_db()
     print(f"WebSocket server starting on {HOST}:{PORT}")
 
-    # process_request intercepts raw HTTP before the WebSocket handshake.
-    # We use it to respond to Render's health check pings with HTTP 200
-    # instead of letting websockets reject them with InvalidMessage errors.
     async def process_request(connection, request):
-        if request.method in ("HEAD", "GET") and "Upgrade" not in request.headers:
-            from websockets.http11 import Response
-            from websockets.datastructures import Headers
-            return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+        try:
+            headers = dict(request.headers)
+            if headers.get("upgrade", "").lower() != "websocket":
+                from websockets.http11 import Response
+                from websockets.datastructures import Headers
+                return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+        except Exception:
+            pass
         return None  # proceed with normal WebSocket handshake
 
     async with websockets.serve(
