@@ -954,23 +954,26 @@ async def main():
     await init_db()
     print(f"WebSocket server starting on {HOST}:{PORT}")
 
-    # process_request intercepts raw HTTP before the WebSocket handshake.
-    # We use it to respond to Render's health check pings with HTTP 200
-    # instead of letting websockets reject them with InvalidMessage errors.
     async def process_request(connection, request):
-        if request.method != "GET":
-            from websockets.http11 import Response
-            from websockets.datastructures import Headers
-            return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+        try:
+            if request.method == "HEAD":
+                from websockets.http11 import Response
+                from websockets.datastructures import Headers
+                return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+        except Exception:
+            pass
         return None
+
+    import logging
+    logging.getLogger("websockets").setLevel(logging.CRITICAL)
 
     async with websockets.serve(
         handle_client,
         HOST, PORT,
         process_request=process_request
     ):
+    
         await asyncio.Future()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
