@@ -957,15 +957,11 @@ async def main():
     # We use it to respond to Render's health check pings with HTTP 200
     # instead of letting websockets reject them with InvalidMessage errors.
     async def process_request(connection, request):
-        try:
-            headers = dict(request.headers)
-            if headers.get("upgrade", "").lower() != "websocket":
-                from websockets.http11 import Response
-                from websockets.datastructures import Headers
-                return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
-        except Exception:
-            pass
-        return None  # proceed with normal WebSocket handshake
+        if request.method != "GET":
+            from websockets.http11 import Response
+            from websockets.datastructures import Headers
+            return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+        return None
 
     async with websockets.serve(
         handle_client,
