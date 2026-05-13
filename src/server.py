@@ -64,6 +64,7 @@ async def init_db():
             min_size=1,
             max_size=5,
             ssl=ssl_ctx,
+            statement_cache_size=0,  # required for PgBouncer/Supabase Session Pooler
         )
         async with db_pool.acquire() as conn:
             await conn.execute("""
