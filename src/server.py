@@ -46,25 +46,24 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 db_pool = None
 
 async def init_db():
-    """Connect to Postgres and create the leaderboard table if it doesn't exist."""
     global db_pool
     if not DATABASE_URL:
-        print("No DATABASE_URL set — leaderboard will be in-memory only (data lost on restart).")
+        print("No DATABASE_URL set — leaderboard will be in-memory only.")
         return
     try:
-        # ssl='require' is mandatory for Supabase.
-        # Without it, connections are silently rejected and the server falls back
-        # to in-memory storage — which is why scores disappear on restart.
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE  # needed for Supabase's certificate chain
+        ssl_ctx.verify_mode = ssl.CERT_NONE
 
-        db_pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            min_size=1,
-            max_size=5,
-            ssl=ssl_ctx,
-            statement_cache_size=0,  # required for PgBouncer/Supabase Session Pooler
+        db_pool = await asyncio.wait_for(
+            asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=1,
+                max_size=5,
+                ssl=ssl_ctx,
+                statement_cache_size=0,
+            ),
+            timeout=10.0  # give up after 10 seconds, fall back to in-memory
         )
         async with db_pool.acquire() as conn:
             await conn.execute("""
@@ -80,8 +79,11 @@ async def init_db():
                 )
             """)
         print("Database connected and leaderboard table ready.")
+    except asyncio.TimeoutError:
+        print("Database connection timed out — falling back to in-memory.")
+        db_pool = None
     except Exception as e:
-        print(f"Database init failed: {e} — falling back to in-memory (data lost on restart).")
+        print(f"Database init failed: {e} — falling back to in-memory.")
         db_pool = None
 
 
