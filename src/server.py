@@ -37,6 +37,10 @@ STATION_COLORS = {
 DREAM_VISUALIZER_COOK_TIME = 5.0
 LOGIC_FILTER_PROCESS_TIME = 2.5
 
+# Order timers
+TWO_ORB_BASE_TIME   = 60.0
+THREE_ORB_BASE_TIME = 90.0   # was sharing 60s with 2-orb; now gets extra 30s
+
 rooms = {}
 client_to_room = {}
 room_connections = {}
@@ -63,21 +67,40 @@ async def init_db():
                 ssl=ssl_ctx,
                 statement_cache_size=0,
             ),
-            timeout=10.0  # give up after 10 seconds, fall back to in-memory
+            timeout=10.0
         )
         async with db_pool.acquire() as conn:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS leaderboard (
-                    id         SERIAL PRIMARY KEY,
-                    party      TEXT NOT NULL,
-                    score_1    INTEGER DEFAULT 0,
-                    score_2    INTEGER DEFAULT 0,
-                    score_3    INTEGER DEFAULT 0,
-                    score_4    INTEGER DEFAULT 0,
-                    total      INTEGER DEFAULT 0,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
+                    id           SERIAL PRIMARY KEY,
+                    party        TEXT NOT NULL,
+                    player_count INTEGER DEFAULT 1,
+                    score_1      INTEGER DEFAULT 0,
+                    score_2      INTEGER DEFAULT 0,
+                    score_3      INTEGER DEFAULT 0,
+                    score_4      INTEGER DEFAULT 0,
+                    total        INTEGER DEFAULT 0,
+                    stars_1      INTEGER DEFAULT 0,
+                    stars_2      INTEGER DEFAULT 0,
+                    stars_3      INTEGER DEFAULT 0,
+                    stars_4      INTEGER DEFAULT 0,
+                    created_at   TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            # Migrate existing tables that lack the new columns (safe no-ops if already present)
+            for col, defval in [
+                ("player_count", "INTEGER DEFAULT 1"),
+                ("stars_1", "INTEGER DEFAULT 0"),
+                ("stars_2", "INTEGER DEFAULT 0"),
+                ("stars_3", "INTEGER DEFAULT 0"),
+                ("stars_4", "INTEGER DEFAULT 0"),
+            ]:
+                try:
+                    await conn.execute(
+                        f"ALTER TABLE leaderboard ADD COLUMN IF NOT EXISTS {col} {defval}"
+                    )
+                except Exception:
+                    pass
         print("Database connected and leaderboard table ready.")
     except asyncio.TimeoutError:
         print("Database connection timed out — falling back to in-memory.")
@@ -94,7 +117,8 @@ async def db_get_leaderboard():
     try:
         async with db_pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id, party, score_1, score_2, score_3, score_4, total "
+                "SELECT id, party, player_count, score_1, score_2, score_3, score_4, total, "
+                "stars_1, stars_2, stars_3, stars_4 "
                 "FROM leaderboard ORDER BY total DESC LIMIT 50"
             )
             return [_row_to_entry(r) for r in rows]
@@ -103,19 +127,24 @@ async def db_get_leaderboard():
         return _mem_leaderboard_sorted()
 
 
-async def db_submit_leaderboard(party, scores):
+async def db_submit_leaderboard(party, scores, player_count=1, stars=None):
     """Insert a new leaderboard entry. Returns (entries, new_id)."""
     s1 = int(scores.get("1", 0) or scores.get(1, 0))
     s2 = int(scores.get("2", 0) or scores.get(2, 0))
     s3 = int(scores.get("3", 0) or scores.get(3, 0))
     s4 = int(scores.get("4", 0) or scores.get(4, 0))
     total = s1 + s2 + s3 + s4
+    st1 = int((stars or {}).get("1", 0))
+    st2 = int((stars or {}).get("2", 0))
+    st3 = int((stars or {}).get("3", 0))
+    st4 = int((stars or {}).get("4", 0))
+    pc  = max(1, min(4, int(player_count or 1)))
     if db_pool is None:
         fake_id = random.randint(100000, 999999)
         _mem_leaderboard.append({
-            "id": fake_id,
-            "party": party,
+            "id": fake_id, "party": party, "player_count": pc,
             "scores": {"1": s1, "2": s2, "3": s3, "4": s4},
+            "stars":  {"1": st1, "2": st2, "3": st3, "4": st4},
             "total": total,
         })
         _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
@@ -125,9 +154,11 @@ async def db_submit_leaderboard(party, scores):
     try:
         async with db_pool.acquire() as conn:
             new_id = await conn.fetchval(
-                "INSERT INTO leaderboard (party, score_1, score_2, score_3, score_4, total) "
-                "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-                party, s1, s2, s3, s4, total
+                "INSERT INTO leaderboard "
+                "(party, player_count, score_1, score_2, score_3, score_4, total, "
+                " stars_1, stars_2, stars_3, stars_4) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
+                party, pc, s1, s2, s3, s4, total, st1, st2, st3, st4
             )
         return await db_get_leaderboard(), new_id
     except Exception as e:
@@ -135,18 +166,25 @@ async def db_submit_leaderboard(party, scores):
         return _mem_leaderboard_sorted(), None
 
 
-async def db_update_leaderboard(row_id, party, scores):
+async def db_update_leaderboard(row_id, party, scores, player_count=1, stars=None):
     """Update an existing leaderboard entry by id. Returns (entries, row_id)."""
     s1 = int(scores.get("1", 0) or scores.get(1, 0))
     s2 = int(scores.get("2", 0) or scores.get(2, 0))
     s3 = int(scores.get("3", 0) or scores.get(3, 0))
     s4 = int(scores.get("4", 0) or scores.get(4, 0))
     total = s1 + s2 + s3 + s4
+    st1 = int((stars or {}).get("1", 0))
+    st2 = int((stars or {}).get("2", 0))
+    st3 = int((stars or {}).get("3", 0))
+    st4 = int((stars or {}).get("4", 0))
+    pc  = max(1, min(4, int(player_count or 1)))
     if db_pool is None:
         for e in _mem_leaderboard:
             if e.get("id") == row_id:
                 e["party"] = party
+                e["player_count"] = pc
                 e["scores"] = {"1": s1, "2": s2, "3": s3, "4": s4}
+                e["stars"]  = {"1": st1, "2": st2, "3": st3, "4": st4}
                 e["total"] = total
                 break
         _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
@@ -154,9 +192,10 @@ async def db_update_leaderboard(row_id, party, scores):
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
-                "UPDATE leaderboard SET party=$1, score_1=$2, score_2=$3, score_3=$4, "
-                "score_4=$5, total=$6 WHERE id=$7",
-                party, s1, s2, s3, s4, total, row_id
+                "UPDATE leaderboard SET party=$1, player_count=$2, "
+                "score_1=$3, score_2=$4, score_3=$5, score_4=$6, total=$7, "
+                "stars_1=$8, stars_2=$9, stars_3=$10, stars_4=$11 WHERE id=$12",
+                party, pc, s1, s2, s3, s4, total, st1, st2, st3, st4, row_id
             )
         return await db_get_leaderboard(), row_id
     except Exception as e:
@@ -166,19 +205,26 @@ async def db_update_leaderboard(row_id, party, scores):
 
 def _row_to_entry(row):
     return {
-        "id":    row["id"],
-        "party": row["party"],
+        "id":           row["id"],
+        "party":        row["party"],
+        "player_count": row.get("player_count", 1) or 1,
         "scores": {
             "1": row["score_1"],
             "2": row["score_2"],
             "3": row["score_3"],
             "4": row["score_4"],
         },
+        "stars": {
+            "1": row.get("stars_1", 0) or 0,
+            "2": row.get("stars_2", 0) or 0,
+            "3": row.get("stars_3", 0) or 0,
+            "4": row.get("stars_4", 0) or 0,
+        },
         "total": row["total"],
     }
 
 
-# In-memory fallback (used when DATABASE_URL not set or DB unreachable)
+# In-memory fallback
 _mem_leaderboard = []
 
 def _mem_leaderboard_sorted():
@@ -420,7 +466,14 @@ class GameState:
                 name = random.choice(list(RECIPES.keys()))
 
         is_three_orb = name in self.THREE_ORB_RECIPES
-        base_time = 40.0 if is_priority else 60.0
+
+        # 2-orb orders: 60s base; 3-orb orders: 90s base (extra time for extra complexity)
+        if is_priority:
+            base_time = 40.0   # priority is always 2-orb (level 4 only)
+        elif is_three_orb:
+            base_time = THREE_ORB_BASE_TIME
+        else:
+            base_time = TWO_ORB_BASE_TIME
 
         self.orders.append({
             "name": name,
@@ -878,17 +931,21 @@ async def handle_client(websocket):
                 response = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
 
             elif action == "LEADERBOARD_SUBMIT":
-                party_name = request.get("party", "Unknown")[:24]
-                scores     = request.get("scores", {})
-                entries, new_id = await db_submit_leaderboard(party_name, scores)
+                party_name   = request.get("party", "Unknown")[:24]
+                scores       = request.get("scores", {})
+                player_count = request.get("player_count", 1)
+                stars        = request.get("stars", {})
+                entries, new_id = await db_submit_leaderboard(party_name, scores, player_count, stars)
                 response = {"status": "success", "action": "LEADERBOARD_DATA",
                             "entries": entries, "submitted_id": new_id}
 
             elif action == "LEADERBOARD_UPDATE":
-                row_id     = request.get("id")
-                party_name = request.get("party", "Unknown")[:24]
-                scores     = request.get("scores", {})
-                entries, upd_id = await db_update_leaderboard(row_id, party_name, scores)
+                row_id       = request.get("id")
+                party_name   = request.get("party", "Unknown")[:24]
+                scores       = request.get("scores", {})
+                player_count = request.get("player_count", 1)
+                stars        = request.get("stars", {})
+                entries, upd_id = await db_update_leaderboard(row_id, party_name, scores, player_count, stars)
                 response = {"status": "success", "action": "LEADERBOARD_DATA",
                             "entries": entries, "submitted_id": upd_id}
 
@@ -974,7 +1031,6 @@ async def main():
         HOST, PORT,
         process_request=process_request
     ):
-    
         await asyncio.Future()
 
 if __name__ == "__main__":

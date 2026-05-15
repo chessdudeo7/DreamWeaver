@@ -34,8 +34,11 @@
 
     const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
 
+    // Order timers (must match server.py constants)
+    const TWO_ORB_BASE_TIME   = 60.0;
+    const THREE_ORB_BASE_TIME = 90.0;
+
     // ── Star + Score persistence (session-only, resets on page load) ──────────
-    // We use a plain JS object instead of localStorage so scores reset every session.
     const _sessionStars  = {};
     const _sessionScores = {};
 
@@ -66,7 +69,6 @@
         document.querySelectorAll('.level-highscore[data-level]').forEach(el => {
             const key  = el.dataset.level;
             const best = getBestScore(key);
-            // Always show "best: X" — starts at 0 and climbs
             el.textContent = 'best: ' + best;
         });
     }
@@ -98,7 +100,6 @@
         ctx.closePath();
     }
 
-    // ── Lerp helper for smooth remote player movement ──
     function lerp(a, b, t) { return a + (b - a) * t; }
 
     // ========== ITEM ==========
@@ -249,7 +250,6 @@
             this.x = x; this.y = y; this.w = 40; this.h = 40;
             this.speed = 6;
             this.color = color; this.heldItem = null;
-            // Interpolation targets for remote players
             this.targetX = x; this.targetY = y;
         }
 
@@ -311,8 +311,8 @@
             this.lastDeliveryTime = 0;
 
             // Logic Filter state for this player
-            this.lfRole = null;       // null | "owner" | "helper"
-            this.lfOrbInHand = null;  // saved orb to return if cancelled/rejected
+            this.lfRole = null;
+            this.lfOrbInHand = null;
 
             // Tutorial state
             this.isTutorial   = false;
@@ -321,11 +321,13 @@
             this.tutMoveLocked = false;
 
             // Leaderboard state
-            this.leaderboardData  = [];
-            this.leaderboardLevel = 'total';
-            this.levelScores      = {};   // { levelKey: score } accumulated this session
-            this.lbSubmittedId    = null; // DB row id of this session's submission (for update)
-            this.lbSubmittedParty = null; // party name used when submitting
+            this.leaderboardData    = [];
+            this.leaderboardLevel   = 'total';
+            this.leaderboardPlayers = 'all';   // 'all' | '1' | '2' | '3' | '4'
+            this.levelScores        = {};       // { levelKey: score } accumulated this session
+            this.levelStars         = {};       // { levelKey: stars } accumulated this session
+            this.lbSubmittedId      = null;
+            this.lbSubmittedParty   = null;
 
             this.setupEventListeners();
         }
@@ -358,10 +360,19 @@
             document.getElementById('leaderboardBtn').addEventListener('click', () => this.openLeaderboard());
             document.getElementById('lbCloseBtn').addEventListener('click', () => this.closeLeaderboard());
             document.getElementById('lbSubmitBtn').addEventListener('click', () => this.submitLeaderboard());
+
+            // Level tabs
             document.getElementById('lbTabTotal').addEventListener('click', () => this.setLbTab('total'));
             ['1','2','3','4'].forEach(l => {
                 const btn = document.getElementById('lbTab' + l);
                 if (btn) btn.addEventListener('click', () => this.setLbTab(l));
+            });
+
+            // Player-count filter tabs
+            document.getElementById('lbPlayerAll').addEventListener('click', () => this.setLbPlayerFilter('all'));
+            ['1','2','3','4'].forEach(n => {
+                const btn = document.getElementById('lbPlayer' + n);
+                if (btn) btn.addEventListener('click', () => this.setLbPlayerFilter(n));
             });
 
             document.getElementById('playerName').addEventListener('input', (e) => {
@@ -384,7 +395,6 @@
                 });
             });
 
-            // Tutorial OK button — tells server this player confirmed
             document.getElementById('tutOkBtn').addEventListener('click', () => {
                 this.tutClickOk();
             });
@@ -413,30 +423,23 @@
             } catch(e) { console.error("Join error:", e); }
         }
 
-        // Host clicks "Choose a Dream →" in lobby — opens the level select screen
         async startGame() {
             if (!this.isHost || !this.network.connected) return;
-            // Tell server game has started so non-host lobby polls see game_started=true
             await this.network.send({ action: "START_GAME" });
             this.showLevelSelect();
         }
 
-        // Host clicked a level card
         async selectLevel(levelNum) {
             if (!this.isHost) return;
             if (this.network.connected) {
                 await this.network.send({ action: "LOAD_LEVEL", level: levelNum });
-                // Host loads locally via the broadcast (onLevelLoad), just like other players
             } else {
                 this.loadLevel(levelNum);
             }
         }
 
-        // "Main menu" button — returns everyone to the dream atlas (level select)
         async goToMainMenu() {
             if (!this.isHost) return;
-            // Tell server game is still in "PLAYING" state so we just show level select locally.
-            // Broadcast a level_select signal so all players return to the atlas screen.
             if (this.network.connected) {
                 await this.network.send({ action: "LOAD_LEVEL", level: 0 });
             } else {
@@ -444,20 +447,17 @@
             }
         }
 
-        // "Next level" / "Retry" button on the level-complete screen
         async nextLevel() {
             if (!this.isHost) return;
-            // Tutorial complete screen only shows "Dream Atlas" — this shouldn't fire
             if (this.isTutorial) { this.goToMainMenu(); return; }
             const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
             const passed = stars >= 1;
             let target;
             if (!passed) {
-                target = this.currentLevel;           // retry same level
+                target = this.currentLevel;
             } else if (this.currentLevel < 4) {
-                target = this.currentLevel + 1;       // advance to next
+                target = this.currentLevel + 1;
             } else {
-                // Last level cleared — go back to atlas
                 this.goToMainMenu();
                 return;
             }
@@ -514,8 +514,6 @@
                 document.getElementById('playerCountDisplay').textContent =
                     `dreamers (${res.players.length}/4)`;
 
-                // Only rebuild the list when the player count actually changes,
-                // preventing the fade-in animation from re-triggering every 500ms.
                 if (res.players.length !== prevCount) {
                     const list = document.getElementById('playersList');
                     list.innerHTML = '';
@@ -533,7 +531,6 @@
                         res.players.length > 0 ? 'block' : 'none';
                 }
 
-                // Non-host: once game started, show the level select (waiting for host pick)
                 if (!this.isHost && res.game_started && this.gameState === "LOBBY") {
                     clearInterval(this.lobbyUpdateInterval);
                     this.gameState = "LEVEL_SELECT";
@@ -564,10 +561,8 @@
             this.orders = []; this.score = 0; this.frame = 0; this.spawnTick = 0;
             this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
             this.lfRole = null; this.lfOrbInHand = null;
-            // Reset tutorial state
             this.tutStep = 0; this.tutWaiting = false; this.tutMoveLocked = false;
 
-            // Tutorial uses level 1 layout
             if (levelNum === 'tutorial' || levelNum === 1) {
                 this.stations = [
                     new Station("Happy Dispenser", 60, 110, 90, 90),
@@ -611,7 +606,6 @@
                     new Station("Crate 3", 220, 440, 60, 60),
                 ];
             } else {
-                // Level 4 — priority orders introduced
                 this.stations = [
                     new Station("Happy Dispenser", 160, 110, 90, 90),
                     new Station("Calm Dispenser", 270, 110, 90, 90),
@@ -628,13 +622,10 @@
             }
 
             if (this.isTutorial) {
-                // Guided order: Deep Calm (Blue + Blue), plus one random second order
-                const secondName = "Joyful Slumber"; // always same for consistency
                 this.orders = [
                     { name: "Deep Calm",    time: Infinity, max: Infinity, recipe: RECIPES["Deep Calm"] },
-                    { name: secondName,     time: Infinity, max: Infinity, recipe: RECIPES[secondName] },
+                    { name: "Joyful Slumber", time: Infinity, max: Infinity, recipe: RECIPES["Joyful Slumber"] },
                 ];
-                // Start tutorial — server will broadcast step 0
                 if (this.isHost) {
                     setTimeout(() => {
                         if (this.network.connected && this.network.ws) {
@@ -648,8 +639,6 @@
         }
 
         addOrder() {
-            // Client-side order generation (used in offline/local mode and for tutorial initial orders)
-            // In online play, orders come from server via broadcast — this just seeds the initial display
             const twoOrb   = ["Joyful Slumber", "Action Flight", "Deep Calm"];
             const threeOrb = ["Vivid Odyssey", "Velvet Abyss", "Ember Vision"];
             let name, is_priority = false, is_three_orb = false;
@@ -664,7 +653,12 @@
             } else {
                 name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
             }
-            const baseTime = is_priority ? 40 : 60;
+            // 2-orb: 60s base; 3-orb: 90s base; priority (2-orb only): 40s
+            let baseTime;
+            if (is_priority) baseTime = 40;
+            else if (is_three_orb) baseTime = THREE_ORB_BASE_TIME;
+            else baseTime = TWO_ORB_BASE_TIME;
+
             this.orders.push({ name, time: baseTime, max: baseTime,
                 recipe: RECIPES[name], is_priority, is_three_orb });
         }
@@ -684,7 +678,6 @@
                 this.gameTimer -= dt;
                 if (this.gameTimer <= 0) { this.gameState = "LEVEL_COMPLETE"; this.showLevelComplete(); }
             }
-            // Tutorial: check action-based step advancement
             if (this.isTutorial && this.tutWaiting) this.tutCheckAction();
 
             if (this.redFlash > 0) this.redFlash -= dt;
@@ -693,7 +686,6 @@
             this.spawnTick += dt;
             if (!this.isTutorial && this.spawnTick > 15 && this.orders.length < 5) { this.addOrder(); this.spawnTick = 0; }
 
-            // Highlight stations near player
             for (let s of this.stations) {
                 s.isHighlighted = !!( this.player && this.collideRects(
                     this.player.x-2.5, this.player.y-2.5, this.player.w+5, this.player.h+5,
@@ -701,7 +693,6 @@
                 ));
             }
 
-            // Logic Filter role cleanup
             const lf = this.getStation("Logic Filter");
             if (lf) {
                 if (this.lfRole === "owner" && !lf.isHighlighted && lf.isCooking) {
@@ -717,14 +708,11 @@
                 }
             }
 
-            // Player movement — locked during tutorial OK steps
             const moveLocked = this.isTutorial && this.tutMoveLocked;
             const dx = moveLocked ? 0 : (this.keys['ArrowRight']?1:0) - (this.keys['ArrowLeft']?1:0);
             const dy = moveLocked ? 0 : (this.keys['ArrowDown']?1:0) - (this.keys['ArrowUp']?1:0);
             if (this.player) this.player.move(dx, dy, this.stations);
 
-            // Interpolate remote players toward their broadcast target positions
-            // t=0.35 gives smooth, responsive movement at 60fps
             for (const [id, pl] of Object.entries(this.playersDict)) {
                 if (id != this.myId) {
                     pl.x = lerp(pl.x, pl.targetX, 0.35);
@@ -732,7 +720,6 @@
                 }
             }
 
-            // Network sync — lf_holding piggybacked every 16ms
             const now = Date.now();
             if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
                 this.lastSyncTime = now;
@@ -747,7 +734,6 @@
                 });
             }
 
-            // Spacebar one-shot interactions — locked during tutorial OK steps
             const spaceDown = !!this.keys[' '];
             if (spaceDown && !this.spacebarPressed && !(this.isTutorial && this.tutMoveLocked)) {
                 for (let s of this.stations) {
@@ -756,7 +742,6 @@
             }
             this.spacebarPressed = spaceDown;
 
-            // Expire orders locally
             this.orders = this.orders.filter(o => {
                 o.time -= dt;
                 if (o.time <= 0) {
@@ -827,7 +812,6 @@
             }
 
             if (s.name === "Logic Filter") {
-                // Case A: done — anyone with empty hands picks up
                 if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && !this.player.heldItem) {
                     this.player.heldItem = deserializeItem(
                         s.heldItem.toServerFormat ? s.heldItem.toServerFormat() : s.heldItem);
@@ -836,12 +820,10 @@
                     this.sendStationUpdate({ update_type: "logic_filter_pickup" });
                     return;
                 }
-                // Case B: cooking, no role — become a helper (space held next tick contributes)
                 if (s.isCooking && this.lfRole === null) {
                     this.lfRole = "helper";
                     return;
                 }
-                // Case C: idle, I have an unprocessed orb — place it
                 if (!s.isCooking && this.lfRole === null &&
                     this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
                     this.lfOrbInHand = this.player.heldItem;
@@ -946,62 +928,31 @@
             if (lf && !lf.isCooking) { lf.heldItem = null; }
         }
 
-        // ── TUTORIAL SYSTEM ─────────────────────────────────────────────────
-        // Step types:
-        //   ok:true       → movement LOCKED, ALL players click OK to proceed
-        //   ok:false      → movement FREE
-        //   proximity:str → movement FREE, auto-advances when ANY player enters
-        //                   the interaction radius of the named station
-        //   (no ok, no proximity) → waits for a game action via tutCheckAction
-        //
-        // Orders: Deep Calm (Blue+Blue) guided first, Joyful Slumber solo second.
-        // Level ends only when both orders are delivered (orders.length === 0).
+        // ── TUTORIAL SYSTEM ──────────────────────────────────────────────────
 
         tutSteps() {
             return [
-                // 0 — OK (intro, movement locked)
                 { text: "Welcome to Dreamweaver! You weave dreams from coloured orbs. This tutorial walks you through making a Deep Calm dream — two blue orbs. Click OK to begin.", ok: true, target: null },
-                // 1 — PROXIMITY: Calm Dispenser
                 { text: "Head to the Calm Dispenser — the blue station in the top row.", ok: false, proximity: "Calm Dispenser", target: "Calm Dispenser" },
-                // 2 — ACTION: any player picks up Calm orb
                 { text: "Press SPACE to pick up a blue orb.", ok: false, target: "Calm Dispenser" },
-                // 3 — PROXIMITY: Logic Filter
                 { text: "Bring the orb to the Logic Filter on the right.", ok: false, proximity: "Logic Filter", target: "Logic Filter" },
-                // 4 — ACTION: orb placed in Logic Filter
                 { text: "Press SPACE to place the orb inside the Logic Filter.", ok: false, target: "Logic Filter" },
-                // 5 — ACTION: hold space until processed
                 { text: "Hold SPACE to process the orb — keep holding until the bar is full!", ok: false, target: "Logic Filter" },
-                // 6 — ACTION: pick up processed orb
                 { text: "Orb processed! Press SPACE near the Logic Filter to pick it up.", ok: false, target: "Logic Filter" },
-                // 7 — PROXIMITY: Crate 1
                 { text: "Head to one of the brown Crates in the middle.", ok: false, proximity: "Crate 1", target: "Crate 1" },
-                // 8 — ACTION: processed orb loaded onto vessel (bundle >= 1)
                 { text: "Pick up a Vessel from the crate, then press SPACE on the crate while holding it to load the orb.", ok: false, target: "Crate 1" },
-                // 9 — OK (checkpoint before second orb)
                 { text: "One blue orb loaded! Now do the same for a second blue orb — pick it up from the Calm Dispenser, process it, and load it onto the same vessel.", ok: true, target: null },
-                // 10 — OK (Vessel Return tip)
                 { text: "Tip: when you deliver a vessel through the Gateway, it returns to the Vessel Return station after a few seconds. Pick it up there to reuse it!", ok: true, target: "Vessel Return" },
-                // 11 — OK (Void Siphon tip)
                 { text: "Tip: if you ever mess up a vessel, bring it to the Void Siphon and press SPACE — it will clear everything on it so you can start fresh.", ok: true, target: "Void Siphon" },
-                // 12 — ACTION: vessel has bundle >= 2
                 { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
-                // 13 — PROXIMITY: Dream Visualizer
                 { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
-                // 14 — ACTION: DV starts cooking
                 { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
-                // 15 — ACTION: DV finishes
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
-                // 16 — ACTION: any vessel with dishName ready
                 { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
-                // 17 — PROXIMITY: Gateway
                 { text: "Bring the vessel to the Gateway on the bottom-left.", ok: false, proximity: "Gateway", target: "Gateway" },
-                // 18 — ACTION: first order delivered
                 { text: "Press SPACE at the Gateway to deliver Deep Calm!", ok: false, target: "Gateway" },
-                // 19 — OK (solo order checkpoint)
                 { text: "Well done! Now complete the second order on your own — Joyful Slumber needs a golden orb and a blue orb. You know what to do!", ok: true, target: null },
-                // 20 — ACTION: both orders gone
                 { text: "Complete the Joyful Slumber order and deliver it through the Gateway.", ok: false, target: null },
-                // 21 — OK (final)
                 { text: "You did it! You are now a Dreamweaver. Go weave something wonderful. ✦", ok: true, target: null },
             ];
         }
@@ -1015,7 +966,6 @@
             this.tutStep       = idx;
             const step         = steps[idx];
             this.tutMoveLocked = !!step.ok;
-            // Action steps and proximity steps both allow movement and free play
             this.tutWaiting    = !step.ok;
 
             const dlg = document.getElementById('tutorialDialog');
@@ -1073,7 +1023,6 @@
             try { this.network.ws.send(JSON.stringify({ action: "TUTORIAL_ACTION", key })); } catch(e) {}
         }
 
-        // Called every frame during non-OK steps — checks both proximity and game actions
         tutCheckAction() {
             const steps = this.tutSteps();
             const step  = steps[this.tutStep];
@@ -1086,7 +1035,6 @@
             const c2  = this.getStation("Crate 2");
             const c3  = this.getStation("Crate 3");
 
-            // Proximity check — any player within interaction radius of target station
             if (step.proximity) {
                 const target = this.getStation(step.proximity);
                 if (target) {
@@ -1098,7 +1046,6 @@
                 }
             }
 
-            // Game-action checks
             const anyHolds      = pred => all.some(pl => pl.heldItem && pred(pl.heldItem));
             const anyVesselBund = n    => [c1,c2,c3].some(c => c?.heldItem?.isVessel && c.heldItem.bundle.length >= n)
                                        || all.some(pl => pl.heldItem?.isVessel && pl.heldItem.bundle.length >= n);
@@ -1142,9 +1089,7 @@
             }
         }
 
-
-
-                // ── LEADERBOARD ──────────────────────────────────────────────────────
+        // ── LEADERBOARD ──────────────────────────────────────────────────────
 
         openLeaderboard() {
             document.getElementById('leaderboardOverlay').style.display = 'flex';
@@ -1154,9 +1099,7 @@
                 btn.style.display = 'block';
                 btn.disabled = false;
                 if (this.lbSubmittedId !== null) {
-                    // Already submitted this session — offer to update instead
                     btn.textContent = 'Update Score';
-                    // Pre-fill the party name they used
                     if (this.lbSubmittedParty)
                         document.getElementById('lbPartyName').value = this.lbSubmittedParty;
                 } else {
@@ -1192,21 +1135,32 @@
             btn.disabled = true;
             btn.textContent = 'Saving…';
 
+            // Build stars payload from session stars
+            const starsPayload = {
+                "1": getBestStars("1"),
+                "2": getBestStars("2"),
+                "3": getBestStars("3"),
+                "4": getBestStars("4"),
+            };
+            const playerCount = this.connectedPlayers.length || 1;
+
             let res;
             if (this.lbSubmittedId !== null) {
-                // Update existing entry
                 res = await this.network.send({
                     action: "LEADERBOARD_UPDATE",
                     id:     this.lbSubmittedId,
                     party,
-                    scores: this.levelScores,
+                    scores:       this.levelScores,
+                    stars:        starsPayload,
+                    player_count: playerCount,
                 });
             } else {
-                // First submission this session
                 res = await this.network.send({
                     action: "LEADERBOARD_SUBMIT",
                     party,
-                    scores: this.levelScores,
+                    scores:       this.levelScores,
+                    stars:        starsPayload,
+                    player_count: playerCount,
                 });
             }
 
@@ -1225,7 +1179,6 @@
 
         setLbTab(tab) {
             this.leaderboardLevel = tab;
-            // Update tab active state
             ['total','1','2','3','4'].forEach(t => {
                 const btn = document.getElementById('lbTab' + (t === 'total' ? 'Total' : t));
                 if (btn) btn.classList.toggle('lb-tab-active', t === tab);
@@ -1233,13 +1186,29 @@
             this.renderLeaderboard();
         }
 
+        setLbPlayerFilter(filter) {
+            this.leaderboardPlayers = filter;
+            // Update active state on player filter buttons
+            ['all','1','2','3','4'].forEach(f => {
+                const btn = document.getElementById('lbPlayer' + (f === 'all' ? 'All' : f));
+                if (btn) btn.classList.toggle('lb-tab-active', f === filter);
+            });
+            this.renderLeaderboard();
+        }
+
         renderLeaderboard() {
             const tbody = document.getElementById('lbTableBody');
             if (!tbody) return;
-            const tab   = this.leaderboardLevel;
-            const data  = this.leaderboardData;
+            const tab    = this.leaderboardLevel;
+            const pcFilt = this.leaderboardPlayers;   // 'all' | '1'..'4'
+            let data = this.leaderboardData;
 
-            // Sort by selected tab
+            // Filter by player count
+            if (pcFilt !== 'all') {
+                data = data.filter(e => String(e.player_count || 1) === pcFilt);
+            }
+
+            // Sort by selected level tab
             const sorted = [...data].sort((a, b) => {
                 const scoreA = tab === 'total' ? a.total : (a.scores[tab] || 0);
                 const scoreB = tab === 'total' ? b.total : (b.scores[tab] || 0);
@@ -1248,23 +1217,40 @@
 
             tbody.innerHTML = '';
             if (sorted.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:24px;">No scores yet for this level.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:24px;">No scores yet for this filter.</td></tr>';
                 return;
             }
+
             sorted.slice(0, 20).forEach((e, i) => {
-                const score = tab === 'total' ? e.total : (e.scores[tab] || 0);
-                const medal = i === 0 ? '✦' : i === 1 ? '◈' : i === 2 ? '◇' : (i + 1);
+                const score   = tab === 'total' ? e.total : (e.scores[tab] || 0);
+                const medal   = i === 0 ? '✦' : i === 1 ? '◈' : i === 2 ? '◇' : (i + 1);
+
+                // Stars: show per-level stars if on a level tab, else show per-level breakdown
+                let starsCell = '';
+                if (tab !== 'total') {
+                    const s = (e.stars || {})[tab] || 0;
+                    starsCell = [0,1,2].map(j => j < s ? '★' : '☆').join('');
+                } else {
+                    // Show total stars across all 4 levels (sum)
+                    const st = e.stars || {};
+                    const total = (st['1']||0) + (st['2']||0) + (st['3']||0) + (st['4']||0);
+                    starsCell = '★'.repeat(total) || '—';
+                }
+
+                const pcBadge = `<span class="lb-pc-badge">${e.player_count || 1}p</span>`;
+
                 const row = document.createElement('tr');
                 row.className = i < 3 ? 'lb-top-' + (i+1) : '';
                 row.innerHTML = `
                     <td class="lb-rank">${medal}</td>
-                    <td class="lb-party">${e.party}</td>
+                    <td class="lb-party">${e.party} ${pcBadge}</td>
+                    <td class="lb-stars">${starsCell}</td>
                     <td class="lb-score">${score}</td>`;
                 tbody.appendChild(row);
             });
         }
 
-                showLevelComplete() {
+        showLevelComplete() {
             document.getElementById('tutorialDialog').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'flex';
 
@@ -1284,10 +1270,15 @@
             const passed = stars >= 1;
             setBestStars(String(this.currentLevel), stars);
             setBestScore(String(this.currentLevel), this.score);
-            // Accumulate for leaderboard (keep best per level this session)
+
+            // Accumulate for leaderboard (best per level this session)
             const lk = String(this.currentLevel);
             if (!this.levelScores[lk] || this.score > this.levelScores[lk])
                 this.levelScores[lk] = this.score;
+            // Also track best stars per level for leaderboard submission
+            if (!this.levelStars[lk] || stars > this.levelStars[lk])
+                this.levelStars[lk] = stars;
+
             refreshStarDisplays();
 
             document.getElementById('levelResultText').textContent =
@@ -1296,7 +1287,6 @@
             document.getElementById('starsDisplay').textContent =
                 [0,1,2].map(i => i < stars ? '★' : '☆').join('');
 
-            // Reset button widths in case tutorial changed them
             document.getElementById('mainMenuBtn').style.width = '';
             document.getElementById('nextLevelBtn').style.display = '';
 
@@ -1325,7 +1315,6 @@
                     const o = this.orders[i], tx = 10+i*175;
                     const isPriority   = !!o.is_priority;
                     const isThreeOrb   = !!o.is_three_orb;
-                    // Priority: vivid red-orange panel; 3-orb: slightly brighter purple panel
                     const panelColor   = isPriority ? [80,20,20] : isThreeOrb ? [60,40,90] : [50,50,80];
                     const borderColor  = isPriority ? [255,80,30] : isThreeOrb ? [180,70,255] : null;
 
@@ -1338,7 +1327,6 @@
                         this.ctx.stroke();
                     }
 
-                    // Priority badge
                     if (isPriority) {
                         this.ctx.font = 'bold 9px Arial';
                         this.ctx.fillStyle = rgbToString([255,80,30]);
@@ -1404,13 +1392,11 @@
 
             game.network.onLevelLoad = (level) => {
                 if (level === 0) {
-                    // Return to dream atlas (level select) for all players
                     document.getElementById('levelCompleteUI').style.display = 'none';
                     document.getElementById('tutorialDialog').style.display = 'none';
                     game.gameState = "LEVEL_SELECT";
                     game.showLevelSelect();
                 } else {
-                    // level may be "tutorial" (string) or a number
                     game.loadLevel(level);
                 }
             };
@@ -1445,7 +1431,6 @@
 
                 for (let p of data.players) {
                     if (p.id !== game.myId && game.playersDict[p.id]) {
-                        // Set interpolation targets — actual position lerps each frame
                         game.playersDict[p.id].targetX = p.x;
                         game.playersDict[p.id].targetY = p.y;
                         game.playersDict[p.id].heldItem = p.heldItem ? deserializeItem(p.heldItem) : null;
@@ -1465,13 +1450,10 @@
                         if (srv) station.applyServerState(srv);
                     }
                 }
-                // Tutorial state sync — applies to all players
                 if (ss.tutorial) {
                     game.tutApplyState(ss.tutorial);
                 }
 
-                // Tutorial only ends when both orders are delivered (orders.length===0),
-                // not from timer or server state — the final OK step handles it via tutApplyState
                 if (ss.state === "LEVEL_COMPLETE" && game.gameState === "PLAYING" && !game.isTutorial) {
                     game.gameState = "LEVEL_COMPLETE";
                     game.showLevelComplete();

@@ -202,13 +202,23 @@
                 <button id="lbSubmitBtn" class="ui-btn btn-teal lb-submit">Add to Leaderboard</button>
             </div>
 
-            <!-- Tab bar -->
+            <!-- Level tab bar -->
             <div class="lb-tabs">
                 <button id="lbTabTotal" class="lb-tab lb-tab-active">All Levels</button>
                 <button id="lbTab1" class="lb-tab">Level I</button>
                 <button id="lbTab2" class="lb-tab">Level II</button>
                 <button id="lbTab3" class="lb-tab">Level III</button>
                 <button id="lbTab4" class="lb-tab">Level IV</button>
+            </div>
+
+            <!-- Player-count filter bar -->
+            <div class="lb-tabs lb-player-tabs">
+                <span class="lb-filter-label">Players:</span>
+                <button id="lbPlayerAll" class="lb-tab lb-tab-active">All</button>
+                <button id="lbPlayer1"   class="lb-tab">Solo</button>
+                <button id="lbPlayer2"   class="lb-tab">2P</button>
+                <button id="lbPlayer3"   class="lb-tab">3P</button>
+                <button id="lbPlayer4"   class="lb-tab">4P</button>
             </div>
 
             <!-- Table -->
@@ -218,11 +228,12 @@
                         <tr>
                             <th class="lb-rank">#</th>
                             <th class="lb-party">Party</th>
+                            <th class="lb-stars">Stars</th>
                             <th class="lb-score">Score</th>
                         </tr>
                     </thead>
                     <tbody id="lbTableBody">
-                        <tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:24px;">Loading…</td></tr>
+                        <tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:24px;">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
