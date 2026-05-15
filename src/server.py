@@ -39,7 +39,7 @@ LOGIC_FILTER_PROCESS_TIME = 2.5
 
 # Order timers
 TWO_ORB_BASE_TIME   = 60.0
-THREE_ORB_BASE_TIME = 90.0   # was sharing 60s with 2-orb; now gets extra 30s
+THREE_ORB_BASE_TIME = 90.0
 
 rooms = {}
 client_to_room = {}
@@ -310,7 +310,7 @@ def generate_code():
 
 def make_response(data, rid=None):
     if rid is not None:
-        data['_rid'] = rid
+        data = {**data, '_rid': rid}   # copy — never mutate the caller's dict
     return json.dumps(data)
 
 
@@ -321,12 +321,15 @@ def match_recipe(bundle):
     return "Abstract Mush", [150, 0, 0]
 
 
-async def schedule_vessel_respawn(room_code, delay=5.0):
+async def schedule_vessel_respawn(room_code, delay=5.0, generation=None):
     await asyncio.sleep(delay)
     if room_code not in rooms or room_code not in room_connections:
         return
     gs = rooms[room_code].get("game_state")
     if not gs:
+        return
+    # If the room has loaded a new level since this task was created, bail out
+    if generation is not None and gs.generation != generation:
         return
     total = gs.count_total_vessels(rooms[room_code]["players_dict"])
     if total < 3:
@@ -351,7 +354,8 @@ class GameState:
         self.stations = {}
         self.station_locks = {}
         self.logic_filter_holders = set()
-        self.last_update_time = time()
+        self.last_update_time = None   # set on first SYNC to avoid dt spike
+        self.generation = random.randint(0, 2**31)  # unique id; stale tasks check this
         self._create_stations(level)
         self._spawn_initial_orders()
 
@@ -515,6 +519,8 @@ class GameState:
         self.logic_filter_holders.discard(client_id)
 
     def update(self, dt, players_dict=None):
+        # Guard against absurdly large dt (e.g. first tick after level load)
+        dt = min(dt, 0.5)
         self.game_timer -= dt
         if self.game_timer <= 0:
             self.state = "LEVEL_COMPLETE"
@@ -612,6 +618,7 @@ async def broadcast_room(current_room, rooms, room_connections):
         room_connections[current_room].remove(conn)
 
 
+
 # ── Client Handler ───────────────────────────────────────────────────────────
 
 async def handle_client(websocket):
@@ -621,116 +628,93 @@ async def handle_client(websocket):
 
     try:
         async for message in websocket:
-            request = json.loads(message)
-            action = request.get("action")
-            rid = request.get("_rid")
-            response = {"status": "error", "message": "Unknown action"}
+            # bad JSON must never crash the connection
+            try:
+                request = json.loads(message)
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(f"Bad message from {client_id}: {e}")
+                continue
 
-            if action == "CREATE":
-                name = request.get("name", "Unknown Host")
-                code = generate_code()
-                color = PLAYER_COLORS[0]
-                rooms[code] = {
-                    "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}],
-                    "state": "LOBBY",
-                    "game_state": None,
-                    "tutorial_state": None,
-                    "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
-                }
-                room_connections[code] = [websocket]
-                client_to_room[client_id] = code
-                current_room = code
-                response = {"status": "success", "action": "JOINED", "code": code, "is_host": True, "player_id": client_id}
+            # any unhandled exception inside a message must not
+            # kill the WebSocket — log it and keep going.
+            action = None
+            rid = None
+            try:
+                action = request.get("action")
+                rid = request.get("_rid")
+                response = {"status": "error", "message": "Unknown action"}
 
-            elif action == "JOIN":
-                code = request.get("code", "").upper()
-                name = request.get("name", "Guest")
-                if code in rooms and rooms[code]["state"] == "LOBBY" and len(rooms[code]["players"]) < 4:
-                    color_idx = len(rooms[code]["players"])
-                    color = PLAYER_COLORS[color_idx]
-                    rooms[code]["players"].append({"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None})
-                    rooms[code]["players_dict"][client_id] = {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}
-                    room_connections.setdefault(code, []).append(websocket)
-                    client_to_room[client_id] = code
-                    current_room = code
-                    response = {"status": "success", "action": "JOINED", "code": code, "is_host": False, "player_id": client_id}
-                elif code in rooms and len(rooms[code]["players"]) >= 4:
-                    response = {"status": "error", "message": "Room is full"}
-                else:
-                    response = {"status": "error", "message": "Invalid code"}
-
-            elif action == "GET_LOBBY":
-                if current_room and current_room in rooms:
-                    response = {"status": "success", "action": "LOBBY_UPDATE",
-                                "players": rooms[current_room]["players"],
-                                "game_started": rooms[current_room]["state"] == "PLAYING"}
-
-            elif action == "START_GAME":
-                if current_room and current_room in rooms:
-                    rooms[current_room]["state"] = "PLAYING"
-                    response = {"status": "success", "action": "GAME_STARTED"}
-
-            elif action == "LOAD_LEVEL":
-                if current_room and current_room in rooms:
-                    level = request.get("level", 1)
-                    if level == 0:
-                        if current_room in room_connections:
-                            msg = json.dumps({"status": "level_load", "level": 0})
-                            disconnected = []
-                            for conn in room_connections[current_room]:
-                                try:
-                                    await conn.send(msg)
-                                except websockets.exceptions.ConnectionClosed:
-                                    disconnected.append(conn)
-                            for conn in disconnected:
-                                room_connections[current_room].remove(conn)
-                        continue
-                    is_tut = (level == "tutorial")
-                    server_level = 1 if is_tut else level
-                    rooms[current_room]["game_state"] = GameState(server_level, is_tutorial=is_tut)
-                    if current_room in room_connections:
-                        msg = json.dumps({"status": "level_load", "level": level})
-                        disconnected = []
-                        for conn in room_connections[current_room]:
-                            try:
-                                await conn.send(msg)
-                            except websockets.exceptions.ConnectionClosed:
-                                disconnected.append(conn)
-                        for conn in disconnected:
-                            room_connections[current_room].remove(conn)
+                if action == "PING":
+                    await websocket.send(json.dumps({"status": "pong"}))
                     continue
 
-            elif action == "SYNC":
-                if current_room and current_room in rooms:
-                    game_state = rooms[current_room]["game_state"]
-                    if game_state:
-                        for p in rooms[current_room]["players_dict"].values():
-                            if p["id"] == client_id:
-                                p["x"] = request.get("x", p["x"])
-                                p["y"] = request.get("y", p["y"])
-                                p["heldItem"] = request.get("heldItem")
-                                break
+                elif action == "CREATE":
+                    name = request.get("name", "Unknown Host")
+                    code = generate_code()
+                    color = PLAYER_COLORS[0]
+                    rooms[code] = {
+                        "players": [{"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}],
+                        "state": "LOBBY",
+                        "game_state": None,
+                        "tutorial_state": None,
+                        "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
+                    }
+                    room_connections[code] = [websocket]
+                    client_to_room[client_id] = code
+                    current_room = code
+                    response = {"status": "success", "action": "JOINED", "code": code, "is_host": True, "player_id": client_id}
 
-                        lf_holding = request.get("lf_holding", False)
-                        lf = game_state.stations.get("Logic Filter")
-                        if lf and lf["is_cooking"]:
-                            if lf_holding:
-                                game_state.logic_filter_holders.add(client_id)
-                            else:
-                                game_state.logic_filter_holders.discard(client_id)
-                        else:
-                            game_state.logic_filter_holders.discard(client_id)
+                elif action == "JOIN":
+                    code = request.get("code", "").upper()
+                    name = request.get("name", "Guest")
+                    if code in rooms and rooms[code]["state"] == "LOBBY" and len(rooms[code]["players"]) < 4:
+                        color_idx = len(rooms[code]["players"])
+                        color = PLAYER_COLORS[color_idx]
+                        rooms[code]["players"].append({"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None})
+                        rooms[code]["players_dict"][client_id] = {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}
+                        room_connections.setdefault(code, []).append(websocket)
+                        client_to_room[client_id] = code
+                        current_room = code
+                        response = {"status": "success", "action": "JOINED", "code": code, "is_host": False, "player_id": client_id}
+                    elif code in rooms and len(rooms[code]["players"]) >= 4:
+                        response = {"status": "error", "message": "Room is full"}
+                    else:
+                        response = {"status": "error", "message": "Invalid code"}
 
-                        dt = time() - game_state.last_update_time
-                        game_state.update(dt, rooms[current_room]["players_dict"])
-                        game_state.last_update_time = time()
+                elif action == "GET_LOBBY":
+                    if current_room and current_room in rooms:
+                        response = {"status": "success", "action": "LOBBY_UPDATE",
+                                    "players": rooms[current_room]["players"],
+                                    "game_started": rooms[current_room]["state"] == "PLAYING"}
 
+                elif action == "START_GAME":
+                    if current_room and current_room in rooms:
+                        rooms[current_room]["state"] = "PLAYING"
+                        response = {"status": "success", "action": "GAME_STARTED"}
+
+                elif action == "LOAD_LEVEL":
+                    if current_room and current_room in rooms:
+                        level = request.get("level", 1)
+                        if level == 0:
+                            if current_room in room_connections:
+                                msg = json.dumps({"status": "level_load", "level": 0})
+                                disconnected = []
+                                for conn in room_connections[current_room]:
+                                    try:
+                                        await conn.send(msg)
+                                    except websockets.exceptions.ConnectionClosed:
+                                        disconnected.append(conn)
+                                for conn in disconnected:
+                                    room_connections[current_room].remove(conn)
+                            continue
+                        is_tut = (level == "tutorial")
+                        server_level = 1 if is_tut else level
+                        new_gs = GameState(server_level, is_tutorial=is_tut)
+                        rooms[current_room]["game_state"] = new_gs
+                        # always clear tutorial_state when loading any level
+                        rooms[current_room]["tutorial_state"] = None
                         if current_room in room_connections:
-                            msg = json.dumps({
-                                "status": "success",
-                                "players": list(rooms[current_room]["players_dict"].values()),
-                                "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
-                            })
+                            msg = json.dumps({"status": "level_load", "level": level})
                             disconnected = []
                             for conn in room_connections[current_room]:
                                 try:
@@ -740,31 +724,81 @@ async def handle_client(websocket):
                             for conn in disconnected:
                                 room_connections[current_room].remove(conn)
                         continue
-                    else:
-                        response = {"status": "success", "players": list(rooms[current_room]["players_dict"].values())}
 
-            elif action == "STATION_UPDATE":
-                if current_room and current_room in rooms:
-                    game_state = rooms[current_room]["game_state"]
-                    if game_state:
-                        update_type = request.get("update_type", "item")
-                        accepted = False
-                        ts_ref = rooms[current_room].get("tutorial_state")
+                elif action == "SYNC":
+                    if current_room and current_room in rooms:
+                        game_state = rooms[current_room]["game_state"]
+                        if game_state:
+                            for p in rooms[current_room]["players_dict"].values():
+                                if p["id"] == client_id:
+                                    p["x"] = request.get("x", p["x"])
+                                    p["y"] = request.get("y", p["y"])
+                                    p["heldItem"] = request.get("heldItem")
+                                    break
 
-                        if update_type == "vessel_take":
-                            vr = game_state.stations.get("Vessel Return")
-                            if vr and vr["vessel_count"] > 0:
-                                vr["vessel_count"] -= 1
-                                accepted = True
-
-                        elif update_type == "logic_filter_place":
+                            lf_holding = request.get("lf_holding", False)
                             lf = game_state.stations.get("Logic Filter")
-                            if lf and not lf["is_cooking"] and not lf["held_item"]:
-                                if game_state.try_lock("Logic Filter", client_id):
-                                    lf["held_item"] = request.get("orb_item")
-                                    lf["is_cooking"] = True
-                                    lf["progress"] = 0.0
+                            if lf and lf["is_cooking"]:
+                                if lf_holding:
+                                    game_state.logic_filter_holders.add(client_id)
+                                else:
+                                    game_state.logic_filter_holders.discard(client_id)
+                            else:
+                                game_state.logic_filter_holders.discard(client_id)
+
+                            # use None sentinel to avoid dt spike on first tick
+                            now_t = time()
+                            dt = (now_t - game_state.last_update_time) if game_state.last_update_time is not None else 0.0
+                            game_state.update(dt, rooms[current_room]["players_dict"])
+                            game_state.last_update_time = now_t
+
+                            if current_room in room_connections:
+                                msg = json.dumps({
+                                    "status": "success",
+                                    "players": list(rooms[current_room]["players_dict"].values()),
+                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
+                                })
+                                disconnected = []
+                                for conn in room_connections[current_room]:
+                                    try:
+                                        await conn.send(msg)
+                                    except websockets.exceptions.ConnectionClosed:
+                                        disconnected.append(conn)
+                                for conn in disconnected:
+                                    room_connections[current_room].remove(conn)
+                            continue
+                        else:
+                            response = {"status": "success", "players": list(rooms[current_room]["players_dict"].values())}
+
+                elif action == "STATION_UPDATE":
+                    if current_room and current_room in rooms:
+                        game_state = rooms[current_room]["game_state"]
+                        if game_state:
+                            update_type = request.get("update_type", "item")
+                            accepted = False
+                            ts_ref = rooms[current_room].get("tutorial_state")
+
+                            if update_type == "vessel_take":
+                                vr = game_state.stations.get("Vessel Return")
+                                if vr and vr["vessel_count"] > 0:
+                                    vr["vessel_count"] -= 1
                                     accepted = True
+
+                            elif update_type == "logic_filter_place":
+                                lf = game_state.stations.get("Logic Filter")
+                                if lf and not lf["is_cooking"] and not lf["held_item"]:
+                                    if game_state.try_lock("Logic Filter", client_id):
+                                        lf["held_item"] = request.get("orb_item")
+                                        lf["is_cooking"] = True
+                                        lf["progress"] = 0.0
+                                        accepted = True
+                                    else:
+                                        await websocket.send(make_response({
+                                            "status": "rejected", "reason": "logic_filter_busy",
+                                            "game_state": game_state.to_dict(ts_ref),
+                                            "players": list(rooms[current_room]["players_dict"].values())
+                                        }, rid))
+                                        continue
                                 else:
                                     await websocket.send(make_response({
                                         "status": "rejected", "reason": "logic_filter_busy",
@@ -772,85 +806,144 @@ async def handle_client(websocket):
                                         "players": list(rooms[current_room]["players_dict"].values())
                                     }, rid))
                                     continue
-                            else:
-                                await websocket.send(make_response({
-                                    "status": "rejected", "reason": "logic_filter_busy",
-                                    "game_state": game_state.to_dict(ts_ref),
-                                    "players": list(rooms[current_room]["players_dict"].values())
-                                }, rid))
-                                continue
 
-                        elif update_type == "logic_filter_cancel":
-                            lf = game_state.stations.get("Logic Filter")
-                            if lf and game_state.station_locks.get("Logic Filter") == client_id:
-                                orb = lf["held_item"]
-                                lf["held_item"] = None
-                                lf["is_cooking"] = False
-                                lf["progress"] = 0.0
-                                lf["active_holders"] = 0
-                                game_state.logic_filter_holders.discard(client_id)
-                                game_state.release_lock("Logic Filter", client_id)
-                                await websocket.send(make_response({
-                                    "status": "logic_filter_cancelled",
-                                    "returned_orb": orb,
-                                    "game_state": game_state.to_dict(ts_ref),
-                                    "players": list(rooms[current_room]["players_dict"].values())
-                                }, rid))
-                                await broadcast_room(current_room, rooms, room_connections)
-                                continue
-                            else:
-                                game_state.logic_filter_holders.discard(client_id)
-                                accepted = True
-
-                        elif update_type == "logic_filter_pickup":
-                            lf = game_state.stations.get("Logic Filter")
-                            if lf and not lf["is_cooking"] and lf["held_item"]:
-                                lf["held_item"] = None
-                                game_state.station_locks["Logic Filter"] = None
-                                accepted = True
-
-                        elif update_type == "dream_cook_start":
-                            dv = game_state.stations.get("Dream Visualizer")
-                            if dv and not dv["is_cooking"] and not dv["held_item"]:
-                                if game_state.try_lock("Dream Visualizer", client_id):
-                                    bundle = request.get("bundle", [])
-                                    dv["held_item"] = {
-                                        "name": "Bundle", "color": [240, 240, 255],
-                                        "is_processed": True, "is_vessel": False,
-                                        "bundle": bundle, "dish_name": None, "dish_color": None,
-                                    }
-                                    dv["is_cooking"] = True
-                                    dv["progress"] = 0.0
-                                    accepted = True
-                                else:
+                            elif update_type == "logic_filter_cancel":
+                                lf = game_state.stations.get("Logic Filter")
+                                if lf and game_state.station_locks.get("Logic Filter") == client_id:
+                                    orb = lf["held_item"]
+                                    lf["held_item"] = None
+                                    lf["is_cooking"] = False
+                                    lf["progress"] = 0.0
+                                    lf["active_holders"] = 0
+                                    game_state.logic_filter_holders.discard(client_id)
+                                    game_state.release_lock("Logic Filter", client_id)
                                     await websocket.send(make_response({
-                                        "status": "rejected", "reason": "dream_visualizer_busy",
+                                        "status": "logic_filter_cancelled",
+                                        "returned_orb": orb,
                                         "game_state": game_state.to_dict(ts_ref),
                                         "players": list(rooms[current_room]["players_dict"].values())
                                     }, rid))
+                                    await broadcast_room(current_room, rooms, room_connections)
                                     continue
-
-                        elif update_type == "dream_pickup":
-                            dv = game_state.stations.get("Dream Visualizer")
-                            if dv and not dv["is_cooking"] and dv["held_item"]:
-                                dv["held_item"] = None
-                                game_state.release_lock("Dream Visualizer", client_id)
-                                accepted = True
-
-                        elif update_type == "item":
-                            sname = request.get("station_name")
-                            new_item = request.get("held_item")
-                            if sname and sname in game_state.stations:
-                                if sname not in ("Logic Filter", "Dream Visualizer", "Vessel Return"):
-                                    game_state.stations[sname]["held_item"] = new_item
+                                else:
+                                    game_state.logic_filter_holders.discard(client_id)
                                     accepted = True
 
-                        if accepted:
+                            elif update_type == "logic_filter_pickup":
+                                lf = game_state.stations.get("Logic Filter")
+                                if lf and not lf["is_cooking"] and lf["held_item"]:
+                                    lf["held_item"] = None
+                                    game_state.station_locks["Logic Filter"] = None
+                                    accepted = True
+
+                            elif update_type == "dream_cook_start":
+                                dv = game_state.stations.get("Dream Visualizer")
+                                if dv and not dv["is_cooking"] and not dv["held_item"]:
+                                    if game_state.try_lock("Dream Visualizer", client_id):
+                                        bundle = request.get("bundle", [])
+                                        dv["held_item"] = {
+                                            "name": "Bundle", "color": [240, 240, 255],
+                                            "is_processed": True, "is_vessel": False,
+                                            "bundle": bundle, "dish_name": None, "dish_color": None,
+                                        }
+                                        dv["is_cooking"] = True
+                                        dv["progress"] = 0.0
+                                        accepted = True
+                                    else:
+                                        await websocket.send(make_response({
+                                            "status": "rejected", "reason": "dream_visualizer_busy",
+                                            "game_state": game_state.to_dict(ts_ref),
+                                            "players": list(rooms[current_room]["players_dict"].values())
+                                        }, rid))
+                                        continue
+
+                            elif update_type == "dream_pickup":
+                                dv = game_state.stations.get("Dream Visualizer")
+                                if dv and not dv["is_cooking"] and dv["held_item"]:
+                                    dv["held_item"] = None
+                                    game_state.release_lock("Dream Visualizer", client_id)
+                                    accepted = True
+
+                            elif update_type == "item":
+                                sname = request.get("station_name")
+                                new_item = request.get("held_item")
+                                if sname and sname in game_state.stations:
+                                    if sname not in ("Logic Filter", "Dream Visualizer", "Vessel Return"):
+                                        game_state.stations[sname]["held_item"] = new_item
+                                        accepted = True
+
+                            if accepted:
+                                if current_room in room_connections:
+                                    msg = json.dumps({
+                                        "status": "success",
+                                        "players": list(rooms[current_room]["players_dict"].values()),
+                                        "game_state": game_state.to_dict(ts_ref)
+                                    })
+                                    disconnected = []
+                                    for conn in room_connections[current_room]:
+                                        try:
+                                            await conn.send(msg)
+                                        except websockets.exceptions.ConnectionClosed:
+                                            disconnected.append(conn)
+                                    for conn in disconnected:
+                                        room_connections[current_room].remove(conn)
+                                continue
+
+                elif action == "TUTORIAL_START":
+                    if current_room and current_room in rooms:
+                        player_ids = list(rooms[current_room]["players_dict"].keys())
+                        rooms[current_room]["tutorial_state"] = TutorialState(player_ids)
+                        await broadcast_room(current_room, rooms, room_connections)
+                    continue
+
+                elif action == "TUTORIAL_OK":
+                    if current_room and current_room in rooms:
+                        ts = rooms[current_room].get("tutorial_state")
+                        gs = rooms[current_room].get("game_state")
+                        if ts and gs:
+                            ts.try_ok(client_id)
+                            await broadcast_room(current_room, rooms, room_connections)
+                    continue
+
+                elif action == "TUTORIAL_ACTION":
+                    if current_room and current_room in rooms:
+                        ts = rooms[current_room].get("tutorial_state")
+                        gs = rooms[current_room].get("game_state")
+                        if ts and gs:
+                            key = request.get("key", "")
+                            ts.try_action(key)
+                            await broadcast_room(current_room, rooms, room_connections)
+                    continue
+
+                elif action == "DELIVER":
+                    if current_room and current_room in rooms:
+                        game_state = rooms[current_room]["game_state"]
+                        if game_state:
+                            dish_name = request.get("dish_name")
+                            is_vessel = request.get("is_vessel", False)
+                            delivered = False
+                            for i, order in enumerate(game_state.orders):
+                                if order["name"] == dish_name:
+                                    is_priority  = order.get("is_priority", False)
+                                    is_three_orb = order.get("is_three_orb", False)
+                                    base         = 40 if is_three_orb else 20
+                                    time_bonus   = int(order["time"] / (1.5 if is_three_orb else 2))
+                                    points       = (base + time_bonus) * (2 if is_priority else 1)
+                                    game_state.score += points
+                                    game_state.orders.pop(i)
+                                    delivered = True
+                                    break
+                            if not delivered:
+                                game_state.score = max(0, game_state.score - 15)
+                            if is_vessel and delivered:
+                                # pass generation so stale tasks self-cancel
+                                asyncio.create_task(schedule_vessel_respawn(
+                                    current_room, delay=5.0, generation=game_state.generation))
                             if current_room in room_connections:
                                 msg = json.dumps({
                                     "status": "success",
                                     "players": list(rooms[current_room]["players_dict"].values()),
-                                    "game_state": game_state.to_dict(ts_ref)
+                                    "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
                                 })
                                 disconnected = []
                                 for conn in room_connections[current_room]:
@@ -862,94 +955,40 @@ async def handle_client(websocket):
                                     room_connections[current_room].remove(conn)
                             continue
 
-            elif action == "TUTORIAL_START":
-                if current_room and current_room in rooms:
-                    player_ids = list(rooms[current_room]["players_dict"].keys())
-                    rooms[current_room]["tutorial_state"] = TutorialState(player_ids)
-                    await broadcast_room(current_room, rooms, room_connections)
-                continue
+                elif action == "LEADERBOARD_GET":
+                    entries = await db_get_leaderboard()
+                    response = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
 
-            elif action == "TUTORIAL_OK":
-                if current_room and current_room in rooms:
-                    ts = rooms[current_room].get("tutorial_state")
-                    gs = rooms[current_room].get("game_state")
-                    if ts and gs:
-                        ts.try_ok(client_id)
-                        await broadcast_room(current_room, rooms, room_connections)
-                continue
+                elif action == "LEADERBOARD_SUBMIT":
+                    party_name   = request.get("party", "Unknown")[:24]
+                    scores       = request.get("scores", {})
+                    player_count = request.get("player_count", 1)
+                    stars        = request.get("stars", {})
+                    entries, new_id = await db_submit_leaderboard(party_name, scores, player_count, stars)
+                    response = {"status": "success", "action": "LEADERBOARD_DATA",
+                                "entries": entries, "submitted_id": new_id}
 
-            elif action == "TUTORIAL_ACTION":
-                if current_room and current_room in rooms:
-                    ts = rooms[current_room].get("tutorial_state")
-                    gs = rooms[current_room].get("game_state")
-                    if ts and gs:
-                        key = request.get("key", "")
-                        ts.try_action(key)
-                        await broadcast_room(current_room, rooms, room_connections)
-                continue
+                elif action == "LEADERBOARD_UPDATE":
+                    row_id       = request.get("id")
+                    party_name   = request.get("party", "Unknown")[:24]
+                    scores       = request.get("scores", {})
+                    player_count = request.get("player_count", 1)
+                    stars        = request.get("stars", {})
+                    entries, upd_id = await db_update_leaderboard(row_id, party_name, scores, player_count, stars)
+                    response = {"status": "success", "action": "LEADERBOARD_DATA",
+                                "entries": entries, "submitted_id": upd_id}
 
-            elif action == "DELIVER":
-                if current_room and current_room in rooms:
-                    game_state = rooms[current_room]["game_state"]
-                    if game_state:
-                        dish_name = request.get("dish_name")
-                        is_vessel = request.get("is_vessel", False)
-                        delivered = False
-                        for i, order in enumerate(game_state.orders):
-                            if order["name"] == dish_name:
-                                is_priority  = order.get("is_priority", False)
-                                is_three_orb = order.get("is_three_orb", False)
-                                base         = 40 if is_three_orb else 20
-                                time_bonus   = int(order["time"] / (1.5 if is_three_orb else 2))
-                                points       = (base + time_bonus) * (2 if is_priority else 1)
-                                game_state.score += points
-                                game_state.orders.pop(i)
-                                delivered = True
-                                break
-                        if not delivered:
-                            game_state.score = max(0, game_state.score - 15)
-                        if is_vessel and delivered:
-                            asyncio.create_task(schedule_vessel_respawn(current_room, delay=5.0))
-                        if current_room in room_connections:
-                            msg = json.dumps({
-                                "status": "success",
-                                "players": list(rooms[current_room]["players_dict"].values()),
-                                "game_state": game_state.to_dict(rooms[current_room].get("tutorial_state"))
-                            })
-                            disconnected = []
-                            for conn in room_connections[current_room]:
-                                try:
-                                    await conn.send(msg)
-                                except websockets.exceptions.ConnectionClosed:
-                                    disconnected.append(conn)
-                            for conn in disconnected:
-                                room_connections[current_room].remove(conn)
-                        continue
+                await websocket.send(make_response(response, rid))
 
-            elif action == "LEADERBOARD_GET":
-                entries = await db_get_leaderboard()
-                response = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
-
-            elif action == "LEADERBOARD_SUBMIT":
-                party_name   = request.get("party", "Unknown")[:24]
-                scores       = request.get("scores", {})
-                player_count = request.get("player_count", 1)
-                stars        = request.get("stars", {})
-                entries, new_id = await db_submit_leaderboard(party_name, scores, player_count, stars)
-                response = {"status": "success", "action": "LEADERBOARD_DATA",
-                            "entries": entries, "submitted_id": new_id}
-
-            elif action == "LEADERBOARD_UPDATE":
-                row_id       = request.get("id")
-                party_name   = request.get("party", "Unknown")[:24]
-                scores       = request.get("scores", {})
-                player_count = request.get("player_count", 1)
-                stars        = request.get("stars", {})
-                entries, upd_id = await db_update_leaderboard(row_id, party_name, scores, player_count, stars)
-                response = {"status": "success", "action": "LEADERBOARD_DATA",
-                            "entries": entries, "submitted_id": upd_id}
-
-            await websocket.send(make_response(response, rid))
+            except websockets.exceptions.ConnectionClosed:
+                raise   # bubble up to the outer handler to trigger cleanup
+            except Exception as e:
+                print(f"Error handling action '{action}' from {client_id}: {type(e).__name__}: {e}")
+                try:
+                    await websocket.send(make_response(
+                        {"status": "error", "message": "Internal server error"}, rid))
+                except Exception:
+                    pass
 
     except websockets.exceptions.ConnectionClosed:
         pass
@@ -959,16 +998,25 @@ async def handle_client(websocket):
             del client_to_room[client_id]
             if room_code in room_connections:
                 room_connections[room_code] = [c for c in room_connections[room_code] if id(c) != client_id]
-            if room_code in rooms and rooms[room_code]["game_state"]:
-                gs = rooms[room_code]["game_state"]
-                gs.release_all_locks(client_id)
-                lf = gs.stations.get("Logic Filter")
-                if lf and lf["is_cooking"] and gs.station_locks.get("Logic Filter") is None:
-                    lf["is_cooking"] = False
-                    lf["progress"] = 0.0
-                    lf["held_item"] = None
+            if room_code in rooms:
+                # Remove player from room player lists
+                rooms[room_code]["players"] = [
+                    p for p in rooms[room_code]["players"] if p["id"] != client_id]
+                rooms[room_code]["players_dict"].pop(client_id, None)
+                gs = rooms[room_code].get("game_state")
+                if gs:
+                    gs.release_all_locks(client_id)
+                    lf = gs.stations.get("Logic Filter")
+                    if lf and lf["is_cooking"] and gs.station_locks.get("Logic Filter") is None:
+                        lf["is_cooking"] = False
+                        lf["progress"] = 0.0
+                        lf["held_item"] = None
+                # Bug 5 fix: clean up empty rooms entirely
+                if not rooms[room_code]["players_dict"]:
+                    rooms.pop(room_code, None)
+                    room_connections.pop(room_code, None)
+                    print(f"Room {room_code} cleaned up (all players gone)")
         print(f"Connection closed: {client_id}")
-
 
 async def health_check(websocket):
     """

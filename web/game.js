@@ -946,7 +946,7 @@
                 { text: "Tip: if you ever mess up a vessel, bring it to the Void Siphon and press SPACE — it will clear everything on it so you can start fresh.", ok: true, target: "Void Siphon" },
                 { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
                 { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
-                { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
+                { text: "Press SPACE to start cooking the dream.", ok: false, target: "Dream Visualizer" },
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
                 { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
                 { text: "Bring the vessel to the Gateway on the bottom-left.", ok: false, proximity: "Gateway", target: "Gateway" },
@@ -1389,6 +1389,14 @@
         try {
             await game.network.connect();
             console.log('Connected to server');
+
+            game.network.onDisconnect = () => {
+                document.getElementById('reconnectBanner').style.display = 'flex';
+            };
+
+            game.network.onReconnect = () => {
+                document.getElementById('reconnectBanner').style.display = 'none';
+            };
 
             game.network.onLevelLoad = (level) => {
                 if (level === 0) {
