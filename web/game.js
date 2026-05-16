@@ -407,6 +407,7 @@
                 if (res?.status === "success") {
                     this.roomCode = res.code; this.isHost = true;
                     this.myId = res.player_id; this.gameState = "LOBBY";
+                    this._saveSession();
                     this.showLobbyUI();
                 }
             } catch(e) { console.error("Host error:", e); }
@@ -418,7 +419,9 @@
                 const res = await this.network.send({ action: "JOIN", code: this.roomCode, name: this.playerName });
                 if (res?.status === "success") {
                     this.isHost = false; this.myId = res.player_id;
-                    this.gameState = "LOBBY"; this.showLobbyUI();
+                    this.gameState = "LOBBY";
+                    this._saveSession();
+                    this.showLobbyUI();
                 }
             } catch(e) { console.error("Join error:", e); }
         }
@@ -438,8 +441,98 @@
             }
         }
 
+        // ── Session persistence (survives refresh, cleared on tab close) ──────
+        _saveSession() {
+            const myPlayer = this.playersDict[this.myId];
+            sessionStorage.setItem('dw_session', JSON.stringify({
+                roomCode:   this.roomCode,
+                playerName: this.playerName,
+                myId:       this.myId,
+                isHost:     this.isHost,
+                color:      myPlayer ? myPlayer.color : null,
+                gameState:  this.gameState,
+            }));
+        }
+
+        _clearSession() {
+            sessionStorage.removeItem('dw_session');
+        }
+
+        // Called at startup — if a session exists, try to rejoin automatically
+        async _tryResumeSession() {
+            const raw = sessionStorage.getItem('dw_session');
+            if (!raw) return false;
+            let sess;
+            try { sess = JSON.parse(raw); } catch { return false; }
+            if (!sess.roomCode || !sess.playerName) return false;
+
+            // Only resume if we were mid-game (not just in lobby)
+            if (!['PLAYING','LEVEL_SELECT','LEVEL_COMPLETE'].includes(sess.gameState)) {
+                this._clearSession();
+                return false;
+            }
+
+            this.playerName = sess.playerName;
+            this.roomCode   = sess.roomCode;
+            this.isHost     = sess.isHost;
+
+            const res = await this.network.send({
+                action: 'REJOIN',
+                code:   sess.roomCode,
+                name:   sess.playerName,
+                color:  sess.color,
+            });
+
+            if (res && res.action === 'REJOINED') {
+                this.myId      = res.player_id;
+                this.gameState = 'PLAYING';
+                this._saveSession();
+
+                // Rebuild player dict from the rejoined state
+                if (res.players) {
+                    for (const p of res.players) {
+                        this.connectedPlayers.push(p);
+                        this.playersDict[p.id] = new Player(p.x || 450, p.y || 350, p.color);
+                        this.playersDict[p.id].targetX = p.x || 450;
+                        this.playersDict[p.id].targetY = p.y || 350;
+                    }
+                }
+                this.player = this.playersDict[this.myId];
+                if (!this.player) {
+                    const myP = res.players?.find(p => p.id === this.myId);
+                    const col = myP ? myP.color : TEAL;
+                    this.playersDict[this.myId] = new Player(450, 350, col);
+                    this.player = this.playersDict[this.myId];
+                }
+
+                // Load the level layout client-side to match server state
+                if (res.game_state) {
+                    const lvl = res.game_state.level ?? 1;
+                    this.loadLevel(lvl);
+                    // Sync server state into the freshly built stations
+                    if (res.game_state.stations) {
+                        for (const s of this.stations) {
+                            const srv = res.game_state.stations[s.name];
+                            if (srv) s.applyServerState(srv);
+                        }
+                    }
+                    this.score     = res.game_state.score     || 0;
+                    this.orders    = res.game_state.orders    || [];
+                    this.gameTimer = res.game_state.game_timer || 120;
+                }
+
+                console.log('Session resumed for room', sess.roomCode);
+                return true;
+            }
+
+            // Room gone — clear session and fall through to main menu
+            this._clearSession();
+            return false;
+        }
+
         async goToMainMenu() {
             if (!this.isHost) return;
+            this._clearSession();   // intentional exit — don't resume this session
             if (this.network.connected) {
                 await this.network.send({ action: "LOAD_LEVEL", level: 0 });
             } else {
@@ -557,8 +650,7 @@
             this.currentLevel = levelNum;
             this.gameTimer = this.isTutorial ? Infinity : 120;
             this.gameState = "PLAYING";
-
-            this.playersDict = {};
+            this._saveSession();
             for (let p of this.connectedPlayers)
                 this.playersDict[p.id] = new Player(WIDTH/2, HEIGHT/2, p.color);
             if (!this.playersDict[this.myId])
@@ -1397,6 +1489,13 @@
             await game.network.connect();
             console.log('Connected to server');
 
+            // If the tab was refreshed mid-game, try to rejoin automatically
+            const resumed = await game._tryResumeSession();
+            if (resumed) {
+                // loadLevel was called inside _tryResumeSession — game is running
+                document.getElementById('mainMenu').style.display = 'none';
+            }
+
             game.network.onDisconnect = () => {
                 document.getElementById('reconnectBanner').style.display = 'flex';
                 // Stop the lobby poll so it doesn't interfere during reconnect
@@ -1420,6 +1519,7 @@
                     if (res && res.action === 'REJOINED') {
                         // Server has us back in the room — sync state
                         game.myId = res.player_id;
+                        game._saveSession();
                         if (res.game_state && res.players) {
                             // Rebuild remote players
                             for (const p of res.players) {

@@ -87,6 +87,18 @@ async def init_db():
                     created_at   TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS room_snapshots (
+                    code       TEXT PRIMARY KEY,
+                    snapshot   JSONB NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            # Auto-delete snapshots older than 2 hours (stale rooms)
+            await conn.execute("""
+                DELETE FROM room_snapshots
+                WHERE updated_at < NOW() - INTERVAL '2 hours'
+            """)
             # Migrate existing tables that lack the new columns (safe no-ops if already present)
             for col, defval in [
                 ("player_count", "INTEGER DEFAULT 1"),
@@ -229,6 +241,72 @@ _mem_leaderboard = []
 
 def _mem_leaderboard_sorted():
     return sorted(_mem_leaderboard, key=lambda e: e["total"], reverse=True)[:50]
+
+
+# ── Room Snapshot Persistence ────────────────────────────────────────────────
+
+def _room_to_snapshot(room):
+    """Serialise a room dict to a plain JSON-safe dict for storage."""
+    gs = room.get("game_state")
+    ts = room.get("tutorial_state")
+    return {
+        "state":        room["state"],
+        "game_state":   gs.to_dict(ts) if gs else None,
+        "level":        gs.level if gs else None,
+        "is_tutorial":  gs.is_tutorial if gs else False,
+        # Store player names + colors so they can be displayed on rejoin
+        "players_meta": [
+            {"name": p["name"], "color": p["color"]}
+            for p in room["players_dict"].values()
+        ],
+    }
+
+
+async def db_save_room(code, room):
+    """Upsert the room snapshot. Fire-and-forget safe (errors are logged, not raised)."""
+    if db_pool is None:
+        return
+    try:
+        snapshot = json.dumps(_room_to_snapshot(room))
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO room_snapshots (code, snapshot, updated_at)
+                VALUES ($1, $2::jsonb, NOW())
+                ON CONFLICT (code) DO UPDATE
+                    SET snapshot = EXCLUDED.snapshot,
+                        updated_at = NOW()
+            """, code, snapshot)
+    except Exception as e:
+        print(f"db_save_room error: {e}")
+
+
+async def db_load_room(code):
+    """Return the snapshot dict for a room code, or None if not found / too old."""
+    if db_pool is None:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT snapshot FROM room_snapshots
+                WHERE code = $1
+                  AND updated_at > NOW() - INTERVAL '2 hours'
+            """, code)
+        if row:
+            return json.loads(row["snapshot"])
+    except Exception as e:
+        print(f"db_load_room error: {e}")
+    return None
+
+
+async def db_delete_room(code):
+    """Remove a room snapshot (call when the room is intentionally closed)."""
+    if db_pool is None:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM room_snapshots WHERE code = $1", code)
+    except Exception as e:
+        print(f"db_delete_room error: {e}")
 
 
 # ── Tutorial State ───────────────────────────────────────────────────────────
@@ -653,10 +731,37 @@ async def handle_client(websocket):
                     # Sent automatically by game.js after a successful reconnect.
                     code = request.get("code", "").upper()
                     name = request.get("name", "Unknown")
-                    prev_color = request.get("color")  # client sends its old color back
+                    prev_color = request.get("color")
+
+                    # If the room isn't in memory (server restarted), try loading
+                    # its last snapshot from Supabase before giving up
+                    if code not in rooms:
+                        snapshot = await db_load_room(code)
+                        if snapshot:
+                            # Reconstruct a GameState from the snapshot
+                            snap_gs = snapshot.get("game_state")
+                            level   = snapshot.get("level", 1)
+                            is_tut  = snapshot.get("is_tutorial", False)
+                            gs = GameState(level, is_tutorial=is_tut)
+                            if snap_gs:
+                                # Restore score and timer; stations reset to level defaults
+                                # (items in transit are lost, but score and orders survive)
+                                gs.score      = snap_gs.get("score", 0)
+                                gs.game_timer = max(10.0, snap_gs.get("game_timer", 120.0))
+                                gs.orders     = snap_gs.get("orders", [])
+                                gs.state      = snap_gs.get("state", "PLAYING")
+                            rooms[code] = {
+                                "players": [],
+                                "state": snapshot.get("state", "PLAYING"),
+                                "game_state": gs,
+                                "tutorial_state": None,
+                                "players_dict": {},
+                            }
+                            room_connections[code] = []
+                            print(f"Room {code} restored from snapshot")
+
                     if code in rooms:
                         room = rooms[code]
-                        # Assign color: use previous if provided and slot still free, else pick next
                         existing_colors = [p["color"] for p in room["players_dict"].values()]
                         if prev_color and prev_color not in existing_colors:
                             color = prev_color
@@ -666,7 +771,6 @@ async def handle_client(websocket):
                         player_entry = {"id": client_id, "name": name, "color": color,
                                         "x": 450, "y": 350, "heldItem": None}
                         room["players_dict"][client_id] = player_entry
-                        # Keep players list in sync
                         room["players"] = list(room["players_dict"].values())
                         room_connections.setdefault(code, [])
                         if websocket not in room_connections[code]:
@@ -732,6 +836,8 @@ async def handle_client(websocket):
                     if current_room and current_room in rooms:
                         level = request.get("level", 1)
                         if level == 0:
+                            # Intentional return to menu — clear the snapshot
+                            asyncio.create_task(db_delete_room(current_room))
                             if current_room in room_connections:
                                 msg = json.dumps({"status": "level_load", "level": 0})
                                 disconnected = []
@@ -749,6 +855,8 @@ async def handle_client(websocket):
                         rooms[current_room]["game_state"] = new_gs
                         # Bug 6 fix: always clear tutorial_state when loading any level
                         rooms[current_room]["tutorial_state"] = None
+                        # Persist so rejoin after restart works
+                        asyncio.create_task(db_save_room(current_room, rooms[current_room]))
                         if current_room in room_connections:
                             msg = json.dumps({"status": "level_load", "level": level})
                             disconnected = []
@@ -976,6 +1084,8 @@ async def handle_client(websocket):
                                 # Bug 4 fix: pass generation so stale tasks self-cancel
                                 asyncio.create_task(schedule_vessel_respawn(
                                     current_room, delay=5.0, generation=game_state.generation))
+                            # Persist score progress
+                            asyncio.create_task(db_save_room(current_room, rooms[current_room]))
                             if current_room in room_connections:
                                 msg = json.dumps({
                                     "status": "success",
