@@ -39,7 +39,7 @@ LOGIC_FILTER_PROCESS_TIME = 2.5
 
 # Order timers
 TWO_ORB_BASE_TIME   = 60.0
-THREE_ORB_BASE_TIME = 90.0
+THREE_ORB_BASE_TIME = 90.0   # was sharing 60s with 2-orb; now gets extra 30s
 
 rooms = {}
 client_to_room = {}
@@ -628,14 +628,14 @@ async def handle_client(websocket):
 
     try:
         async for message in websocket:
-            # bad JSON must never crash the connection
+            # Bug 2 fix: bad JSON must never crash the connection
             try:
                 request = json.loads(message)
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Bad message from {client_id}: {e}")
                 continue
 
-            # any unhandled exception inside a message must not
+            # Bug 1 fix: any unhandled exception inside a message must not
             # kill the WebSocket — log it and keep going.
             action = None
             rid = None
@@ -647,6 +647,42 @@ async def handle_client(websocket):
                 if action == "PING":
                     await websocket.send(json.dumps({"status": "pong"}))
                     continue
+
+                elif action == "REJOIN":
+                    # Client reconnected and wants to re-enter an existing room.
+                    # Sent automatically by game.js after a successful reconnect.
+                    code = request.get("code", "").upper()
+                    name = request.get("name", "Unknown")
+                    prev_color = request.get("color")  # client sends its old color back
+                    if code in rooms:
+                        room = rooms[code]
+                        # Assign color: use previous if provided and slot still free, else pick next
+                        existing_colors = [p["color"] for p in room["players_dict"].values()]
+                        if prev_color and prev_color not in existing_colors:
+                            color = prev_color
+                        else:
+                            taken = len(room["players_dict"])
+                            color = PLAYER_COLORS[min(taken, 3)]
+                        player_entry = {"id": client_id, "name": name, "color": color,
+                                        "x": 450, "y": 350, "heldItem": None}
+                        room["players_dict"][client_id] = player_entry
+                        # Keep players list in sync
+                        room["players"] = list(room["players_dict"].values())
+                        room_connections.setdefault(code, [])
+                        if websocket not in room_connections[code]:
+                            room_connections[code].append(websocket)
+                        client_to_room[client_id] = code
+                        current_room = code
+                        gs = room.get("game_state")
+                        response = {
+                            "status": "success", "action": "REJOINED",
+                            "code": code, "player_id": client_id,
+                            "game_state": gs.to_dict(room.get("tutorial_state")) if gs else None,
+                            "players": list(room["players_dict"].values()),
+                            "room_state": room["state"],
+                        }
+                    else:
+                        response = {"status": "error", "message": "Room not found"}
 
                 elif action == "CREATE":
                     name = request.get("name", "Unknown Host")
@@ -711,7 +747,7 @@ async def handle_client(websocket):
                         server_level = 1 if is_tut else level
                         new_gs = GameState(server_level, is_tutorial=is_tut)
                         rooms[current_room]["game_state"] = new_gs
-                        # always clear tutorial_state when loading any level
+                        # Bug 6 fix: always clear tutorial_state when loading any level
                         rooms[current_room]["tutorial_state"] = None
                         if current_room in room_connections:
                             msg = json.dumps({"status": "level_load", "level": level})
@@ -746,7 +782,7 @@ async def handle_client(websocket):
                             else:
                                 game_state.logic_filter_holders.discard(client_id)
 
-                            # use None sentinel to avoid dt spike on first tick
+                            # Bug 3 fix: use None sentinel to avoid dt spike on first tick
                             now_t = time()
                             dt = (now_t - game_state.last_update_time) if game_state.last_update_time is not None else 0.0
                             game_state.update(dt, rooms[current_room]["players_dict"])
@@ -887,7 +923,8 @@ async def handle_client(websocket):
                                             disconnected.append(conn)
                                     for conn in disconnected:
                                         room_connections[current_room].remove(conn)
-                                continue
+                            # Always consume — never fall through to generic "Unknown action"
+                            continue
 
                 elif action == "TUTORIAL_START":
                     if current_room and current_room in rooms:
@@ -936,7 +973,7 @@ async def handle_client(websocket):
                             if not delivered:
                                 game_state.score = max(0, game_state.score - 15)
                             if is_vessel and delivered:
-                                # pass generation so stale tasks self-cancel
+                                # Bug 4 fix: pass generation so stale tasks self-cancel
                                 asyncio.create_task(schedule_vessel_respawn(
                                     current_room, delay=5.0, generation=game_state.generation))
                             if current_room in room_connections:
@@ -1011,11 +1048,15 @@ async def handle_client(websocket):
                         lf["is_cooking"] = False
                         lf["progress"] = 0.0
                         lf["held_item"] = None
-                # Bug 5 fix: clean up empty rooms entirely
+                # Bug 4 fix: don't delete rooms immediately — give players 60s to reconnect
                 if not rooms[room_code]["players_dict"]:
-                    rooms.pop(room_code, None)
-                    room_connections.pop(room_code, None)
-                    print(f"Room {room_code} cleaned up (all players gone)")
+                    async def _delayed_cleanup(rc):
+                        await asyncio.sleep(60)
+                        if rc in rooms and not rooms[rc]["players_dict"]:
+                            rooms.pop(rc, None)
+                            room_connections.pop(rc, None)
+                            print(f"Room {rc} cleaned up after grace period")
+                    asyncio.create_task(_delayed_cleanup(room_code))
         print(f"Connection closed: {client_id}")
 
 async def health_check(websocket):

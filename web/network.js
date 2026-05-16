@@ -23,13 +23,14 @@ class Network {
         this.onLFCancelled    = null;
         this.onRejection      = null;
         this.onBroadcast      = null;
-        this.onDisconnect     = null;   // called when connection is lost
-        this.onReconnect      = null;   // called when connection is restored
+        this.onDisconnect     = null;   // new: called when connection is lost
+        this.onReconnect      = null;   // new: called when connection is restored
     }
 
     connect() {
         return new Promise((resolve, reject) => {
             this._intentionallyClosed = false;
+            this._isInitialConnect = true;
             this._doConnect(resolve, reject);
         });
     }
@@ -50,7 +51,9 @@ class Network {
             this._startPing();
             console.log('Connected to server!');
             if (resolveInitial) { resolveInitial(); resolveInitial = null; rejectInitial = null; }
-            if (this.onReconnect) this.onReconnect();
+            // Only fire onReconnect on actual reconnects, not the initial connect
+            if (!this._isInitialConnect && this.onReconnect) this.onReconnect();
+            this._isInitialConnect = false;
         };
 
         this.ws.onerror = (error) => {
@@ -139,7 +142,7 @@ class Network {
         }, delay);
     }
 
-    // resolve all pending requests with null so awaiting callers unblock
+    // Bug 9 fix: resolve all pending requests with null so awaiting callers unblock
     _flushPending() {
         for (const [rid, resolve] of this._pendingRequests) {
             resolve(null);
@@ -147,7 +150,7 @@ class Network {
         this._pendingRequests.clear();
     }
 
-    // keepalive ping so Render doesn't drop the idle connection
+    // Bug 11 fix: keepalive ping so Render doesn't drop the idle connection
     _startPing() {
         this._stopPing();
         this._pingInterval = setInterval(() => {
@@ -183,7 +186,7 @@ class Network {
             try {
                 this.ws.send(JSON.stringify({ ...data, _rid: rid }));
             } catch(e) {
-                // if send throws (socket closing), unblock the caller immediately
+                // Bug 10 fix: if send throws (socket closing), unblock the caller immediately
                 this._pendingRequests.delete(rid);
                 resolve(null);
                 return;

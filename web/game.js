@@ -506,6 +506,12 @@
 
         async updateLobbyDisplay() {
             if (!this.network.connected) return;
+            // Stop polling if we've moved past the lobby
+            if (this.gameState !== 'LOBBY') {
+                clearInterval(this.lobbyUpdateInterval);
+                this.lobbyUpdateInterval = null;
+                return;
+            }
             const res = await this.network.send({ action: "GET_LOBBY" });
             if (res?.status === "success") {
                 const prevCount = this.connectedPlayers.length;
@@ -541,6 +547,7 @@
 
         loadLevel(levelNum) {
             clearInterval(this.lobbyUpdateInterval);
+            this.lobbyUpdateInterval = null;
             document.getElementById('lobbyUI').style.display = 'none';
             document.getElementById('levelSelectUI').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'none';
@@ -946,7 +953,7 @@
                 { text: "Tip: if you ever mess up a vessel, bring it to the Void Siphon and press SPACE — it will clear everything on it so you can start fresh.", ok: true, target: "Void Siphon" },
                 { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
                 { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
-                { text: "Press SPACE to start cooking the dream.", ok: false, target: "Dream Visualizer" },
+                { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
                 { text: "Dream orb ready! Pick it up, grab a fresh Vessel from a crate, and load the dream orb onto it.", ok: false, target: "Dream Visualizer" },
                 { text: "Bring the vessel to the Gateway on the bottom-left.", ok: false, proximity: "Gateway", target: "Gateway" },
@@ -1392,10 +1399,58 @@
 
             game.network.onDisconnect = () => {
                 document.getElementById('reconnectBanner').style.display = 'flex';
+                // Stop the lobby poll so it doesn't interfere during reconnect
+                clearInterval(game.lobbyUpdateInterval);
+                game.lobbyUpdateInterval = null;
             };
 
-            game.network.onReconnect = () => {
+            game.network.onReconnect = async () => {
                 document.getElementById('reconnectBanner').style.display = 'none';
+                // If we were in a room, attempt to rejoin it transparently
+                if (game.roomCode && game.myId !== null &&
+                    (game.gameState === 'PLAYING' || game.gameState === 'LEVEL_SELECT' || game.gameState === 'LEVEL_COMPLETE')) {
+                    const myPlayer = game.playersDict[game.myId];
+                    const color = myPlayer ? myPlayer.color : null;
+                    const res = await game.network.send({
+                        action: 'REJOIN',
+                        code: game.roomCode,
+                        name: game.playerName || 'Player',
+                        color,
+                    });
+                    if (res && res.action === 'REJOINED') {
+                        // Server has us back in the room — sync state
+                        game.myId = res.player_id;
+                        if (res.game_state && res.players) {
+                            // Rebuild remote players
+                            for (const p of res.players) {
+                                if (!game.playersDict[p.id]) {
+                                    game.playersDict[p.id] = new Player(p.x || 450, p.y || 350, p.color);
+                                }
+                                game.playersDict[p.id].targetX = p.x || 450;
+                                game.playersDict[p.id].targetY = p.y || 350;
+                            }
+                            // Resync station state
+                            if (res.game_state.stations) {
+                                for (const s of game.stations) {
+                                    const srv = res.game_state.stations[s.name];
+                                    if (srv) s.applyServerState(srv);
+                                }
+                            }
+                            game.score = res.game_state.score || 0;
+                            game.orders = res.game_state.orders || [];
+                            game.gameTimer = res.game_state.game_timer || game.gameTimer;
+                        }
+                        console.log('Rejoined room', game.roomCode);
+                    } else {
+                        // Room expired — send player back to main menu
+                        console.log('Room no longer exists, returning to menu');
+                        game.gameState = 'MAIN_MENU';
+                        document.getElementById('levelCompleteUI').style.display = 'none';
+                        document.getElementById('levelSelectUI').style.display = 'none';
+                        document.getElementById('tutorialDialog').style.display = 'none';
+                        document.getElementById('mainMenu').style.display = 'flex';
+                    }
+                }
             };
 
             game.network.onLevelLoad = (level) => {
