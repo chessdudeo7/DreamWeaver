@@ -66,10 +66,10 @@ async def init_db():
                 max_size=5,
                 ssl=ssl_ctx,
                 statement_cache_size=0,
-                # Supabase session pooler closes idle connections after ~5min.
-                # Retire connections after 4min so asyncpg replaces them before
-                # the pooler kills them — prevents "connection closed" DB errors
-                # that could crash handler coroutines mid-game.
+                # Supabase pooler closes idle connections after ~5min.
+                # Retire our end after 4min so asyncpg replaces them cleanly
+                # before the pooler kills them. Works for both session and
+                # transaction pooler modes.
                 max_inactive_connection_lifetime=240,
             ),
             timeout=10.0
@@ -667,6 +667,7 @@ class GameState:
             "score": self.score,
             "game_timer": max(0, self.game_timer),
             "frame": self.frame,
+            "level": self.level,
             "orders": self.orders,
             "stations": self.stations,
             "station_locks": self.station_locks,
@@ -1085,8 +1086,8 @@ async def handle_client(websocket):
                                     break
                             if not delivered:
                                 game_state.score -= 15
-                            if is_vessel and delivered:
-                                # Bug 4 fix: pass generation so stale tasks self-cancel
+                            # Return vessel regardless of whether delivery matched an order
+                            if is_vessel:
                                 asyncio.create_task(schedule_vessel_respawn(
                                     current_room, delay=5.0, generation=game_state.generation))
                             # Persist score progress
