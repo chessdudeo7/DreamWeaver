@@ -14,9 +14,9 @@ class Network {
         this._reconnecting = false;
         this._intentionallyClosed = false;
 
-        // Keepalive ping — Render drops idle WS after ~55s
+        // Keepalive ping — belt-and-suspenders alongside server-side WS ping frames
         this._pingInterval = null;
-        this._pingIntervalMs = 30000;   // ping every 30s
+        this._pingIntervalMs = 15000;   // every 15s — well within any proxy idle timeout
 
         // Callbacks set by game.js
         this.onLevelLoad      = null;

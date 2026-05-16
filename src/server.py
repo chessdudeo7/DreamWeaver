@@ -1048,10 +1048,11 @@ async def handle_client(websocket):
                         lf["is_cooking"] = False
                         lf["progress"] = 0.0
                         lf["held_item"] = None
-                # Bug 4 fix: don't delete rooms immediately — give players 60s to reconnect
+                # Keep room alive for 5 minutes after last player leaves so
+                # reconnecting clients can rejoin (code 1006 + reconnect can take ~30s)
                 if not rooms[room_code]["players_dict"]:
                     async def _delayed_cleanup(rc):
-                        await asyncio.sleep(60)
+                        await asyncio.sleep(300)
                         if rc in rooms and not rooms[rc]["players_dict"]:
                             rooms.pop(rc, None)
                             room_connections.pop(rc, None)
@@ -1118,7 +1119,9 @@ async def main():
     async with websockets.serve(
         handle_client,
         HOST, PORT,
-        process_request=process_request
+        process_request=process_request,
+        ping_interval=20,   # send WS ping frame every 20s — resets Render's TCP idle timer
+        ping_timeout=60,    # wait up to 60s for pong before treating as dead
     ):
         await asyncio.Future()
 
