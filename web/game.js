@@ -402,6 +402,7 @@
 
         async hostGame() {
             if (!this.playerName.trim()) return;
+            this._clearSession();  // always start fresh when hosting
             try {
                 const res = await this.network.send({ action: "CREATE", name: this.playerName });
                 if (res?.status === "success") {
@@ -414,6 +415,7 @@
 
         async joinGame() {
             if (!this.playerName.trim() || this.roomCode.length !== 4) return;
+            this._clearSession();  // always start fresh when joining
             try {
                 const res = await this.network.send({ action: "JOIN", code: this.roomCode, name: this.playerName });
                 if (res?.status === "success") {
@@ -440,9 +442,6 @@
         }
 
         // ── Session persistence ───────────────────────────────────────────────
-        // Only written when the connection drops mid-game (not on normal load).
-        // Cleared the moment the player does anything intentional (new host/join,
-        // return to menu, level complete). This way it only fires on true crashes.
 
         _saveSession() {
             const myPlayer = this.playersDict[this.myId];
@@ -451,7 +450,6 @@
                 playerName: this.playerName,
                 isHost:     this.isHost,
                 color:      myPlayer ? myPlayer.color : null,
-                gameState:  this.gameState,
                 level:      this.currentLevel,
             }));
         }
@@ -460,21 +458,24 @@
             sessionStorage.removeItem('dw_session');
         }
 
-        // Called at startup — only resumes if there is a crash session AND
-        // the player hasn't done anything intentional yet
+        // On page load — if a crash session exists, ask the player if they want back in.
         async _tryResumeSession() {
             const raw = sessionStorage.getItem('dw_session');
             if (!raw) return false;
             let sess;
             try { sess = JSON.parse(raw); } catch { this._clearSession(); return false; }
             if (!sess.roomCode || !sess.playerName) { this._clearSession(); return false; }
-            if (sess.gameState !== 'PLAYING') { this._clearSession(); return false; }
 
-            // Clear immediately — if rejoin fails we don't loop
+            // Ask explicitly — avoids auto-loading stale state into a fresh game
+            const resume = confirm(
+                `You were disconnected from room ${sess.roomCode}.\nRejoin where you left off?`
+            );
+            if (!resume) { this._clearSession(); return false; }
+
+            // Clear now so a failed rejoin never loops
             this._clearSession();
 
             this.playerName = sess.playerName;
-            this.roomCode   = sess.roomCode;
             this.isHost     = sess.isHost;
 
             const res = await this.network.send({
@@ -485,57 +486,60 @@
             });
 
             if (res && res.action === 'REJOINED') {
-                this.myId = res.player_id;
-
-                // Step 1: load the level layout first — this resets playersDict/stations cleanly
-                const lvl = res.game_state?.level ?? sess.level ?? 1;
-                // Populate connectedPlayers so loadLevel builds the right player slots
-                this.connectedPlayers = res.players || [];
-                this.loadLevel(lvl);
-                // loadLevel set gameState = PLAYING and rebuilt playersDict from connectedPlayers
-
-                // Step 2: make sure our own player entry exists with the right id
-                // loadLevel builds from connectedPlayers using their original ids,
-                // but our new client_id from the server is res.player_id.
-                // Find our player by color match and remap if needed.
-                if (!this.playersDict[this.myId]) {
-                    const myMeta = res.players?.find(p => p.id === this.myId);
-                    const col = myMeta ? myMeta.color : (sess.color || TEAL);
-                    this.playersDict[this.myId] = new Player(450, 350, col);
-                }
-                this.player = this.playersDict[this.myId];
-
-                // Step 3: apply full server state — stations, score, orders, timer
-                if (res.game_state) {
-                    const gs = res.game_state;
-                    // Full station sync (dream visualizer progress, logic filter state, etc.)
-                    if (gs.stations) {
-                        for (const s of this.stations) {
-                            const srv = gs.stations[s.name];
-                            if (srv) s.applyServerState(srv);
-                        }
-                    }
-                    this.score     = gs.score     ?? 0;
-                    this.orders    = gs.orders    ?? [];
-                    this.gameTimer = gs.game_timer ?? 120;
-                }
-
-                // Step 4: set remote player positions
-                for (const p of (res.players || [])) {
-                    if (p.id !== this.myId && this.playersDict[p.id]) {
-                        this.playersDict[p.id].targetX = p.x || 450;
-                        this.playersDict[p.id].targetY = p.y || 350;
-                        this.playersDict[p.id].x = p.x || 450;
-                        this.playersDict[p.id].y = p.y || 350;
-                    }
-                }
-
-                console.log('Session resumed for room', sess.roomCode);
-                return true;
+                return this._applyRejoin(res, sess.roomCode);
             }
 
-            console.log('Crash session found but room is gone — starting fresh');
+            alert('That room is no longer active. Starting fresh.');
             return false;
+        }
+
+        // Shared rejoin logic — used by _tryResumeSession (page load)
+        // and onReconnect (live mid-session drop).
+        _applyRejoin(res, code) {
+            this.myId     = res.player_id;
+            this.roomCode = code;
+
+            const gs  = res.game_state;
+            const lvl = gs?.level ?? 1;
+
+            // Exclude ourselves from connectedPlayers so loadLevel doesn't
+            // create a slot for us — we add our own entry manually after.
+            this.connectedPlayers = (res.players || []).filter(p => p.id !== this.myId);
+
+            // loadLevel resets stations, playersDict, orders, score cleanly
+            this.loadLevel(lvl);
+
+            // Add our own player with the new server-assigned id
+            const myMeta  = (res.players || []).find(p => p.id === this.myId);
+            const myColor = myMeta ? myMeta.color : TEAL;
+            this.playersDict[this.myId] = new Player(450, 350, myColor);
+            this.player = this.playersDict[this.myId];
+
+            // Apply full server state on top of the fresh layout
+            if (gs) {
+                if (gs.stations) {
+                    for (const s of this.stations) {
+                        const srv = gs.stations[s.name];
+                        if (srv) s.applyServerState(srv);
+                    }
+                }
+                this.score     = gs.score     ?? 0;
+                this.orders    = gs.orders    ?? [];
+                this.gameTimer = gs.game_timer ?? 120;
+            }
+
+            // Snap remote players to their last known positions
+            for (const p of (res.players || [])) {
+                if (p.id !== this.myId && this.playersDict[p.id]) {
+                    this.playersDict[p.id].x       = p.x || 450;
+                    this.playersDict[p.id].y       = p.y || 350;
+                    this.playersDict[p.id].targetX = p.x || 450;
+                    this.playersDict[p.id].targetY = p.y || 350;
+                }
+            }
+
+            console.log('Rejoined room', code);
+            return true;
         }
 
         async goToMainMenu() {
@@ -1527,49 +1531,11 @@
                         color,
                     });
                     if (res && res.action === 'REJOINED') {
-                        game.myId = res.player_id;
                         game._clearSession();
-
-                        if (res.game_state && res.players) {
-                            // Step 1: remove any stale player entries not in server's list
-                            const serverIds = new Set(res.players.map(p => String(p.id)));
-                            for (const id of Object.keys(game.playersDict)) {
-                                if (!serverIds.has(String(id))) {
-                                    delete game.playersDict[id];
-                                }
-                            }
-
-                            // Step 2: add/update all players from server list
-                            for (const p of res.players) {
-                                if (!game.playersDict[p.id]) {
-                                    game.playersDict[p.id] = new Player(p.x || 450, p.y || 350, p.color);
-                                }
-                                game.playersDict[p.id].targetX = p.x || 450;
-                                game.playersDict[p.id].targetY = p.y || 350;
-                                // Don't snap our own player — let them stay where they are
-                                if (p.id !== game.myId) {
-                                    game.playersDict[p.id].x = p.x || 450;
-                                    game.playersDict[p.id].y = p.y || 350;
-                                }
-                            }
-                            game.player = game.playersDict[game.myId];
-
-                            // Step 3: apply full station state (progress, items, cooking state)
-                            if (res.game_state.stations) {
-                                for (const s of game.stations) {
-                                    const srv = res.game_state.stations[s.name];
-                                    if (srv) s.applyServerState(srv);
-                                }
-                            }
-
-                            // Step 4: sync score, orders, timer
-                            game.score     = res.game_state.score     ?? game.score;
-                            game.orders    = res.game_state.orders    ?? game.orders;
-                            game.gameTimer = res.game_state.game_timer ?? game.gameTimer;
-                        }
-                        console.log('Rejoined room', game.roomCode);
+                        game._applyRejoin(res, game.roomCode);
                     } else {
                         console.log('Room no longer exists, returning to menu');
+                        game._clearSession();
                         game.gameState = 'MAIN_MENU';
                         document.getElementById('levelCompleteUI').style.display = 'none';
                         document.getElementById('levelSelectUI').style.display = 'none';
