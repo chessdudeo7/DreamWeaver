@@ -1104,11 +1104,22 @@ async def main():
     print(f"WebSocket server starting on {HOST}:{PORT}")
 
     async def process_request(connection, request):
+        # Render's health checker sends GET / and HEAD / looking for an HTTP port.
+        # Return a plain 200 so it stops scanning and doesn't restart the process.
         try:
-            if request.method == "HEAD":
-                from websockets.http11 import Response
-                from websockets.datastructures import Headers
-                return Response(200, "OK", Headers([("Content-Length", "2")]), b"OK")
+            from websockets.http11 import Response
+            from websockets.datastructures import Headers
+            if request.method in ("GET", "HEAD"):
+                # If this looks like a real WebSocket upgrade, let it through
+                if request.headers.get("Upgrade", "").lower() == "websocket":
+                    return None  # proceed to WebSocket handshake
+                # Otherwise it's a health check — reply with HTTP 200
+                body = b"OK"
+                headers = Headers([
+                    ("Content-Type", "text/plain"),
+                    ("Content-Length", str(len(body))),
+                ])
+                return Response(200, "OK", headers, body)
         except Exception:
             pass
         return None
