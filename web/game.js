@@ -138,6 +138,22 @@
                         drawCircle(ctx, x+Math.cos(a)*or, y-8+Math.sin(a)*or, Math.max(1,ir-3), WHITE);
                     }
                 }
+            } else if (this.isProcessed && this.bundle.length > 0) {
+                // Finished dream orb — show the woven color body + orbiting ingredient dots
+                // so players can identify which dream it is even after processing
+                ctx.strokeStyle = rgbToString(this.color); ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(x, y, r+4, 0, Math.PI*2); ctx.stroke();
+                drawCircle(ctx, x, y, r, this.color);
+                // Sparkling inner highlight to signal "done"
+                drawCircle(ctx, x, y, r * 0.35, WHITE);
+                // Ingredient dots orbit tightly around the body
+                const orbitR = r + 10;
+                for (let i = 0; i < this.bundle.length; i++) {
+                    const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.004;
+                    const dx = Math.cos(a)*orbitR, dy = Math.sin(a)*orbitR;
+                    drawCircle(ctx, x+dx, y+dy, 6, this.bundle[i]);
+                    drawCircle(ctx, x+dx, y+dy, 3, WHITE);
+                }
             } else {
                 ctx.strokeStyle = rgbToString(this.color); ctx.lineWidth = 2;
                 ctx.beginPath(); ctx.arc(x, y, r+4, 0, Math.PI*2); ctx.stroke();
@@ -1007,8 +1023,10 @@
                             delivered = true; break;
                         }
                     }
-                    if (delivered) this.greenFlash = 0.1;
-                    else { this.score -= 15; this.redFlash = 0.2; }
+                    // Always flash green — delivery is never penalized.
+                    // If no matching order is active, the dream is still valid
+                    // but scores 0 (the order timed out while it was being prepared).
+                    this.greenFlash = 0.1;
 
                     if (this.network.connected && this.network.ws) {
                         try {

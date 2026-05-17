@@ -439,6 +439,7 @@ class GameState:
         self.logic_filter_holders = set()
         self.last_update_time = None   # set on first SYNC to avoid dt spike
         self.generation = random.randint(0, 2**31)  # unique id; stale tasks check this
+        self.last_snapshot_time = 0.0  # throttle DB saves to every 30s during SYNC
         self._create_stations(level)
         self._spawn_initial_orders()
 
@@ -636,7 +637,8 @@ class GameState:
                 dv["held_item"] = {
                     "name": res_name, "color": res_color,
                     "is_processed": True, "is_vessel": False,
-                    "bundle": [], "dish_name": None, "dish_color": None,
+                    "bundle": bundle,   # keep ingredients so client can display them
+                    "dish_name": None, "dish_color": None,
                 }
                 dv["is_cooking"] = False
                 dv["progress"] = 0.0
@@ -744,18 +746,28 @@ async def handle_client(websocket):
                     if code not in rooms:
                         snapshot = await db_load_room(code)
                         if snapshot:
-                            # Reconstruct a GameState from the snapshot
                             snap_gs = snapshot.get("game_state")
                             level   = snapshot.get("level", 1)
                             is_tut  = snapshot.get("is_tutorial", False)
                             gs = GameState(level, is_tutorial=is_tut)
                             if snap_gs:
-                                # Restore score and timer; stations reset to level defaults
-                                # (items in transit are lost, but score and orders survive)
                                 gs.score      = snap_gs.get("score", 0)
                                 gs.game_timer = max(10.0, snap_gs.get("game_timer", 120.0))
                                 gs.orders     = snap_gs.get("orders", [])
                                 gs.state      = snap_gs.get("state", "PLAYING")
+                                # Restore full station state — items, cooking progress, vessel counts
+                                snap_stations = snap_gs.get("stations", {})
+                                for sname, sdata in snap_stations.items():
+                                    if sname in gs.stations:
+                                        gs.stations[sname]["held_item"]    = sdata.get("held_item")
+                                        gs.stations[sname]["is_cooking"]   = sdata.get("is_cooking", False)
+                                        gs.stations[sname]["progress"]     = sdata.get("progress", 0.0)
+                                        gs.stations[sname]["vessel_count"] = sdata.get("vessel_count", 0)
+                                        # Don't restore active_holders — no one is holding yet
+                                        gs.stations[sname]["active_holders"] = 0
+                                # Clear any station locks — no clients are connected yet
+                                for sname in gs.station_locks:
+                                    gs.station_locks[sname] = None
                             rooms[code] = {
                                 "players": [],
                                 "state": snapshot.get("state", "PLAYING"),
@@ -901,6 +913,12 @@ async def handle_client(websocket):
                             dt = (now_t - game_state.last_update_time) if game_state.last_update_time is not None else 0.0
                             game_state.update(dt, rooms[current_room]["players_dict"])
                             game_state.last_update_time = now_t
+
+                            # Throttled snapshot save — captures full station state every 30s
+                            # so reconnect after crash restores DV/LF/crate state too
+                            if now_t - game_state.last_snapshot_time >= 30.0:
+                                game_state.last_snapshot_time = now_t
+                                asyncio.create_task(db_save_room(current_room, rooms[current_room]))
 
                             if current_room in room_connections:
                                 msg = json.dumps({
@@ -1084,7 +1102,10 @@ async def handle_client(websocket):
                                     game_state.orders.pop(i)
                                     delivered = True
                                     break
-                            if not delivered:
+                            # No penalty for delivering a valid dream late (order expired).
+                            # Only penalize if the dish_name is completely unrecognised
+                            # (i.e. "Abstract Mush" — a bad orb combination).
+                            if not delivered and dish_name == "Abstract Mush":
                                 game_state.score -= 15
                             # Return vessel regardless of whether delivery matched an order
                             if is_vessel:
