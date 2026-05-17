@@ -518,14 +518,16 @@
             const gs  = res.game_state;
             const lvl = gs?.level ?? 1;
 
-            // Exclude ourselves from connectedPlayers so loadLevel doesn't
-            // create a slot for us — we add our own entry manually after.
+            // Wipe playersDict completely — no stale entries from old session
+            this.playersDict = {};
+
+            // Exclude ourselves so loadLevel doesn't create a duplicate slot
             this.connectedPlayers = (res.players || []).filter(p => p.id !== this.myId);
 
-            // loadLevel resets stations, playersDict, orders, score cleanly
+            // loadLevel resets stations, orders, score cleanly using connectedPlayers
             this.loadLevel(lvl);
 
-            // Add our own player with the new server-assigned id
+            // Add exactly one entry for our own player
             const myMeta  = (res.players || []).find(p => p.id === this.myId);
             const myColor = myMeta ? myMeta.color : TEAL;
             this.playersDict[this.myId] = new Player(450, 350, myColor);
@@ -897,21 +899,25 @@
                 if (this.player.heldItem && s.heldItem) {
                     const pItem = this.player.heldItem, sItem = s.heldItem;
                     if (pItem.isVessel && !sItem.isVessel) {
-                        if (sItem.isProcessed && !pItem.dishName) {
-                            pItem.bundle.push(...(sItem.bundle.length > 0 ? sItem.bundle : [sItem.color]));
+                        if (sItem.isProcessed && (sItem.name in RECIPES || sItem.name === "Abstract Mush") && !pItem.dishName) {
+                            // Finished dream orb — load onto vessel as a complete dish
+                            pItem.dishName = sItem.name; pItem.dishColor = sItem.color;
                             s.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
-                        } else if ((sItem.name in RECIPES || sItem.name === "Abstract Mush") && !pItem.bundle.length) {
-                            pItem.dishName = sItem.name; pItem.dishColor = sItem.color;
+                        } else if (sItem.isProcessed && !pItem.dishName && !(sItem.name in RECIPES) && sItem.name !== "Abstract Mush") {
+                            // Raw processed orb (single ingredient) — push its color onto bundle
+                            pItem.bundle.push(sItem.color);
                             s.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
-                        if (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush") {
-                            sItem.bundle.push(pItem.color); this.player.heldItem = null;
-                            this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
-                        } else if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
+                        if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
+                            // Finished dream orb in hand — load as dish onto vessel in crate
                             sItem.dishName = pItem.name; sItem.dishColor = pItem.color; this.player.heldItem = null;
+                            this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
+                        } else if (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush") {
+                            // Raw processed orb in hand — push color onto vessel bundle in crate
+                            sItem.bundle.push(pItem.color); this.player.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
                         }
                     }

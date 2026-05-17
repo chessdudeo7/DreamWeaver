@@ -401,7 +401,7 @@ def match_recipe(bundle):
     for recipe_name, recipe_colors in RECIPES.items():
         if sorted(json.dumps(c) for c in bundle) == sorted(json.dumps(c) for c in recipe_colors):
             return recipe_name, [180, 70, 255]
-    return "Abstract Mush", [150, 0, 0]
+    return "Abstract Mush", [180, 70, 255]  # same purple — gateway handles scoring
 
 
 async def schedule_vessel_respawn(room_code, delay=5.0, generation=None):
