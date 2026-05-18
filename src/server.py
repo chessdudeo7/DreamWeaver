@@ -873,6 +873,10 @@ async def handle_client(websocket):
                         rooms[current_room]["game_state"] = new_gs
                         # Bug 6 fix: always clear tutorial_state when loading any level
                         rooms[current_room]["tutorial_state"] = None
+                        # Clear held items for all players — no carrying items between levels
+                        for p in rooms[current_room]["players_dict"].values():
+                            p["heldItem"] = None
+                        rooms[current_room]["players"] = list(rooms[current_room]["players_dict"].values())
                         # Persist so rejoin after restart works
                         asyncio.create_task(db_save_room(current_room, rooms[current_room]))
                         if current_room in room_connections:
@@ -1102,11 +1106,9 @@ async def handle_client(websocket):
                                     game_state.orders.pop(i)
                                     delivered = True
                                     break
-                            # No penalty for delivering a valid dream late (order expired).
-                            # Only penalize if the dish_name is completely unrecognised
-                            # (i.e. "Abstract Mush" — a bad orb combination).
-                            if not delivered and dish_name == "Abstract Mush":
-                                game_state.score -= 15
+                            if not delivered:
+                                # Wrong dream or order expired — -10 pts (less than -20 for missing)
+                                game_state.score -= 10
                             # Return vessel regardless of whether delivery matched an order
                             if is_vessel:
                                 asyncio.create_task(schedule_vessel_respawn(
@@ -1173,6 +1175,15 @@ async def handle_client(websocket):
             if room_code in room_connections:
                 room_connections[room_code] = [c for c in room_connections[room_code] if id(c) != client_id]
             if room_code in rooms:
+                # If disconnecting player was holding a vessel, return it
+                # to the Vessel Return so it isn't permanently lost
+                leaving_player = rooms[room_code]["players_dict"].get(client_id)
+                if leaving_player and gs:
+                    held = leaving_player.get("heldItem")
+                    if held and held.get("is_vessel"):
+                        vr = gs.stations.get("Vessel Return")
+                        if vr:
+                            vr["vessel_count"] = min(3, vr["vessel_count"] + 1)
                 # Remove player from room player lists
                 rooms[room_code]["players"] = [
                     p for p in rooms[room_code]["players"] if p["id"] != client_id]

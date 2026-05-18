@@ -690,6 +690,9 @@
             this.redFlash = 0; this.greenFlash = 0; this.lastDeliveryTime = 0;
             this.lfRole = null; this.lfOrbInHand = null;
             this.tutStep = 0; this.tutWaiting = false; this.tutMoveLocked = false;
+            // Clear held items for all players — no carrying items between levels
+            for (const p of Object.values(this.playersDict)) p.heldItem = null;
+            if (this.player) this.player.heldItem = null;
 
             if (levelNum === 'tutorial' || levelNum === 1) {
                 this.stations = [
@@ -1007,12 +1010,11 @@
 
             if (s.name === "Gateway" && this.player.heldItem) {
                 const vesselWithDish = this.player.heldItem.isVessel && this.player.heldItem.dishName;
-                const rawOrb = !this.player.heldItem.isVessel &&
-                               this.player.heldItem.isProcessed &&
-                               this.player.heldItem.name in RECIPES;
 
-                if (vesselWithDish || rawOrb) {
-                    const dishName = vesselWithDish ? this.player.heldItem.dishName : this.player.heldItem.name;
+                // Only a vessel carrying a finished dream can be delivered.
+                // Bare orbs (even finished ones) must be on a vessel first.
+                if (vesselWithDish) {
+                    const dishName = this.player.heldItem.dishName;
                     this.player.heldItem = null;
                     this.lastDeliveryTime = Date.now();
 
@@ -1029,15 +1031,18 @@
                             delivered = true; break;
                         }
                     }
-                    // Always flash green — delivery is never penalized.
-                    // If no matching order is active, the dream is still valid
-                    // but scores 0 (the order timed out while it was being prepared).
-                    this.greenFlash = 0.1;
+                    if (delivered) {
+                        this.greenFlash = 0.1;
+                    } else {
+                        // Wrong dream or order expired — small penalty, red flash
+                        this.score -= 10;
+                        this.redFlash = 0.3;
+                    }
 
                     if (this.network.connected && this.network.ws) {
                         try {
                             this.network.ws.send(JSON.stringify({
-                                action: "DELIVER", dish_name: dishName, is_vessel: vesselWithDish
+                                action: "DELIVER", dish_name: dishName, is_vessel: true
                             }));
                         } catch(e) { console.error("DELIVER failed:", e); }
                     }
