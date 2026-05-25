@@ -23,14 +23,14 @@ RECIPES = {
     "Ember Vision":   [[255, 140, 0], [255, 140, 0], [255, 215, 0]],
 }
 STATION_COLORS = {
-    "Happy Dispenser": [255, 215, 0],
-    "Calm Dispenser": [0, 191, 255],
-    "Adventure Dispenser": [255, 140, 0],
-    "Logic Filter": [100, 110, 130],
+    "Happy Orbs": [255, 215, 0],
+    "Calm Orbs": [0, 191, 255],
+    "Adventure Orbs": [255, 140, 0],
+    "Orb Processor": [100, 110, 130],
     "Dream Visualizer": [180, 70, 255],
     "Gateway": [50, 255, 150],
     "Crate": [110, 70, 40],
-    "Void Siphon": [20, 20, 20],
+    "The Void": [20, 20, 20],
     "Vessel Return": [80, 60, 120]
 }
 
@@ -446,56 +446,56 @@ class GameState:
     def _create_stations(self, level):
         if level == 1:
             configs = [
-                ("Happy Dispenser", 60, 110, 90, 90),
-                ("Calm Dispenser", 160, 110, 90, 90),
-                ("Adventure Dispenser", 260, 110, 90, 90),
-                ("Logic Filter", 740, 110, 100, 140),
+                ("Happy Orbs", 60, 110, 90, 90),
+                ("Calm Orbs", 160, 110, 90, 90),
+                ("Adventure Orbs", 260, 110, 90, 90),
+                ("Orb Processor", 740, 110, 100, 140),
                 ("Dream Visualizer", 400, 510, 140, 90),
                 ("Gateway", 60, 510, 110, 90),
                 ("Vessel Return", 200, 510, 110, 90),
-                ("Void Siphon", 780, 510, 80, 90),
+                ("The Void", 780, 510, 80, 90),
                 ("Crate 1", 380, 280, 60, 60),
                 ("Crate 2", 450, 280, 60, 60),
                 ("Crate 3", 520, 280, 60, 60),
             ]
         elif level == 2:
             configs = [
-                ("Happy Dispenser", 740, 510, 90, 90),
-                ("Calm Dispenser", 640, 510, 90, 90),
-                ("Adventure Dispenser", 540, 510, 90, 90),
-                ("Logic Filter", 60, 110, 100, 140),
+                ("Happy Orbs", 740, 510, 90, 90),
+                ("Calm Orbs", 640, 510, 90, 90),
+                ("Adventure Orbs", 540, 510, 90, 90),
+                ("Orb Processor", 60, 110, 100, 140),
                 ("Dream Visualizer", 400, 110, 140, 90),
                 ("Gateway", 740, 110, 110, 90),
                 ("Vessel Return", 600, 110, 110, 90),
-                ("Void Siphon", 60, 510, 80, 90),
+                ("The Void", 60, 510, 80, 90),
                 ("Crate 1", 380, 320, 60, 60),
                 ("Crate 2", 450, 320, 60, 60),
                 ("Crate 3", 520, 320, 60, 60),
             ]
         elif level == 3:
             configs = [
-                ("Happy Dispenser", 60, 300, 90, 90),
-                ("Calm Dispenser", 60, 410, 90, 90),
-                ("Adventure Dispenser", 60, 190, 90, 90),
-                ("Logic Filter", 400, 110, 140, 120),
+                ("Happy Orbs", 60, 300, 90, 90),
+                ("Calm Orbs", 60, 410, 90, 90),
+                ("Adventure Orbs", 60, 190, 90, 90),
+                ("Orb Processor", 400, 110, 140, 120),
                 ("Dream Visualizer", 750, 300, 110, 110),
                 ("Gateway", 400, 510, 140, 90),
                 ("Vessel Return", 750, 510, 110, 90),
-                ("Void Siphon", 750, 110, 90, 90),
+                ("The Void", 750, 110, 90, 90),
                 ("Crate 1", 220, 240, 60, 60),
                 ("Crate 2", 220, 340, 60, 60),
                 ("Crate 3", 220, 440, 60, 60),
             ]
         else:  # level 4
             configs = [
-                ("Happy Dispenser", 160, 110, 90, 90),
-                ("Calm Dispenser", 270, 110, 90, 90),
-                ("Adventure Dispenser", 60, 110, 90, 90),
-                ("Logic Filter", 60, 430, 100, 140),
+                ("Happy Orbs", 160, 110, 90, 90),
+                ("Calm Orbs", 270, 110, 90, 90),
+                ("Adventure Orbs", 60, 110, 90, 90),
+                ("Orb Processor", 60, 430, 100, 140),
                 ("Dream Visualizer", 650, 430, 140, 110),
                 ("Gateway", 800, 110, 80, 90),
                 ("Vessel Return", 800, 230, 80, 90),
-                ("Void Siphon", 800, 350, 80, 90),
+                ("The Void", 800, 350, 80, 90),
                 ("Crate 1", 380, 270, 60, 60),
                 ("Crate 2", 460, 270, 60, 60),
                 ("Crate 3", 540, 270, 60, 60),
@@ -644,8 +644,8 @@ class GameState:
                 dv["progress"] = 0.0
                 self.station_locks["Dream Visualizer"] = None
 
-        # Logic Filter — speed scales with holders
-        lf = self.stations.get("Logic Filter")
+        # Orb Processor — speed scales with holders
+        lf = self.stations.get("Orb Processor")
         if lf and lf["is_cooking"]:
             n = len(self.logic_filter_holders)
             lf["active_holders"] = n
@@ -658,7 +658,7 @@ class GameState:
                     lf["progress"] = 0.0
                     lf["active_holders"] = 0
                     self.logic_filter_holders.clear()
-                    self.station_locks["Logic Filter"] = None
+                    self.station_locks["Orb Processor"] = None
         else:
             if lf:
                 lf["active_holders"] = 0
@@ -903,7 +903,7 @@ async def handle_client(websocket):
                                     break
 
                             lf_holding = request.get("lf_holding", False)
-                            lf = game_state.stations.get("Logic Filter")
+                            lf = game_state.stations.get("Orb Processor")
                             if lf and lf["is_cooking"]:
                                 if lf_holding:
                                     game_state.logic_filter_holders.add(client_id)
@@ -957,9 +957,9 @@ async def handle_client(websocket):
                                     accepted = True
 
                             elif update_type == "logic_filter_place":
-                                lf = game_state.stations.get("Logic Filter")
+                                lf = game_state.stations.get("Orb Processor")
                                 if lf and not lf["is_cooking"] and not lf["held_item"]:
-                                    if game_state.try_lock("Logic Filter", client_id):
+                                    if game_state.try_lock("Orb Processor", client_id):
                                         lf["held_item"] = request.get("orb_item")
                                         lf["is_cooking"] = True
                                         lf["progress"] = 0.0
@@ -980,15 +980,15 @@ async def handle_client(websocket):
                                     continue
 
                             elif update_type == "logic_filter_cancel":
-                                lf = game_state.stations.get("Logic Filter")
-                                if lf and game_state.station_locks.get("Logic Filter") == client_id:
+                                lf = game_state.stations.get("Orb Processor")
+                                if lf and game_state.station_locks.get("Orb Processor") == client_id:
                                     orb = lf["held_item"]
                                     lf["held_item"] = None
                                     lf["is_cooking"] = False
                                     lf["progress"] = 0.0
                                     lf["active_holders"] = 0
                                     game_state.logic_filter_holders.discard(client_id)
-                                    game_state.release_lock("Logic Filter", client_id)
+                                    game_state.release_lock("Orb Processor", client_id)
                                     await websocket.send(make_response({
                                         "status": "logic_filter_cancelled",
                                         "returned_orb": orb,
@@ -1002,10 +1002,10 @@ async def handle_client(websocket):
                                     accepted = True
 
                             elif update_type == "logic_filter_pickup":
-                                lf = game_state.stations.get("Logic Filter")
+                                lf = game_state.stations.get("Orb Processor")
                                 if lf and not lf["is_cooking"] and lf["held_item"]:
                                     lf["held_item"] = None
-                                    game_state.station_locks["Logic Filter"] = None
+                                    game_state.station_locks["Orb Processor"] = None
                                     accepted = True
 
                             elif update_type == "dream_cook_start":
@@ -1040,7 +1040,7 @@ async def handle_client(websocket):
                                 sname = request.get("station_name")
                                 new_item = request.get("held_item")
                                 if sname and sname in game_state.stations:
-                                    if sname not in ("Logic Filter", "Dream Visualizer", "Vessel Return"):
+                                    if sname not in ("Orb Processor", "Dream Visualizer", "Vessel Return"):
                                         game_state.stations[sname]["held_item"] = new_item
                                         accepted = True
 
@@ -1191,8 +1191,8 @@ async def handle_client(websocket):
                 gs = rooms[room_code].get("game_state")
                 if gs:
                     gs.release_all_locks(client_id)
-                    lf = gs.stations.get("Logic Filter")
-                    if lf and lf["is_cooking"] and gs.station_locks.get("Logic Filter") is None:
+                    lf = gs.stations.get("Orb Processor")
+                    if lf and lf["is_cooking"] and gs.station_locks.get("Orb Processor") is None:
                         lf["is_cooking"] = False
                         lf["progress"] = 0.0
                         lf["held_item"] = None

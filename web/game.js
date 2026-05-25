@@ -10,14 +10,14 @@
     const TEAL = [0, 255, 200];
 
     const STATION_COLORS = {
-        "Happy Dispenser": GOLD,
-        "Calm Dispenser": SKY_BLUE,
-        "Adventure Dispenser": ORANGE,
-        "Logic Filter": [100, 110, 130],
+        "Happy Orbs": GOLD,
+        "Calm Orbs": SKY_BLUE,
+        "Adventure Orbs": ORANGE,
+        "Orb Processor": [100, 110, 130],
         "Dream Visualizer": [180, 70, 255],
         "Gateway": [50, 255, 150],
         "Crate": [110, 70, 40],
-        "Void Siphon": [20, 20, 20],
+        "The Void": [20, 20, 20],
         "Vessel Return": [80, 60, 120]
     };
 
@@ -214,7 +214,7 @@
             if (!this.name.includes("Crate")) {
                 ctx.save();
                 ctx.font = 'bold 12px Arial';
-                ctx.fillStyle = rgbToString(["Void Siphon","Vessel Return","Logic Filter"].includes(this.name) ? WHITE : [20,20,20]);
+                ctx.fillStyle = rgbToString(["The Void","Vessel Return","Orb Processor"].includes(this.name) ? WHITE : [20,20,20]);
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 const words = this.name.split(' ');
                 const lh = 14, sy = this.y + this.h/2 - words.length*lh/2;
@@ -238,17 +238,17 @@
             }
 
             if (this.progress > 0 && this.progress <= 1.0 &&
-                (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
+                (this.name === "Orb Processor" || this.name === "Dream Visualizer")) {
                 drawRect(ctx, this.x, this.y+this.h+8, this.w, 8, [50,50,50], 4);
-                const barColor = (this.name === "Logic Filter" && this.activeHolders > 1) ? GOLD : TEAL;
+                const barColor = (this.name === "Orb Processor" && this.activeHolders > 1) ? GOLD : TEAL;
                 drawRect(ctx, this.x, this.y+this.h+8, this.w*this.progress, 8, barColor, 4);
             }
 
-            if (this.isCooking && (this.name === "Logic Filter" || this.name === "Dream Visualizer")) {
+            if (this.isCooking && (this.name === "Orb Processor" || this.name === "Dream Visualizer")) {
                 ctx.save();
                 ctx.font = 'bold 10px Arial';
                 ctx.textAlign = 'center';
-                if (this.name === "Logic Filter" && this.activeHolders > 1) {
+                if (this.name === "Orb Processor" && this.activeHolders > 1) {
                     ctx.fillStyle = 'rgba(255,215,0,0.95)';
                     ctx.fillText(`⚡ x${this.activeHolders}`, this.x+this.w/2, this.y-8);
                 } else {
@@ -326,7 +326,7 @@
             this.syncInterval = 16;
             this.lastDeliveryTime = 0;
 
-            // Logic Filter state for this player
+            // Orb Processor state for this player
             this.lfRole = null;
             this.lfOrbInHand = null;
 
@@ -696,56 +696,56 @@
 
             if (levelNum === 'tutorial' || levelNum === 1) {
                 this.stations = [
-                    new Station("Happy Dispenser", 60, 110, 90, 90),
-                    new Station("Calm Dispenser", 160, 110, 90, 90),
-                    new Station("Adventure Dispenser", 260, 110, 90, 90),
-                    new Station("Logic Filter", 740, 110, 100, 140),
+                    new Station("Happy Orbs", 60, 110, 90, 90),
+                    new Station("Calm Orbs", 160, 110, 90, 90),
+                    new Station("Adventure Orbs", 260, 110, 90, 90),
+                    new Station("Orb Processor", 740, 110, 100, 140),
                     new Station("Dream Visualizer", 400, 510, 140, 90),
                     new Station("Gateway", 60, 510, 110, 90),
                     new Station("Vessel Return", 200, 510, 110, 90),
-                    new Station("Void Siphon", 780, 510, 80, 90),
+                    new Station("The Void", 780, 510, 80, 90),
                     new Station("Crate 1", 380, 280, 60, 60),
                     new Station("Crate 2", 450, 280, 60, 60),
                     new Station("Crate 3", 520, 280, 60, 60),
                 ];
             } else if (levelNum === 2) {
                 this.stations = [
-                    new Station("Happy Dispenser", 740, 510, 90, 90),
-                    new Station("Calm Dispenser", 640, 510, 90, 90),
-                    new Station("Adventure Dispenser", 540, 510, 90, 90),
-                    new Station("Logic Filter", 60, 110, 100, 140),
+                    new Station("Happy Orbs", 740, 510, 90, 90),
+                    new Station("Calm Orbs", 640, 510, 90, 90),
+                    new Station("Adventure Orbs", 540, 510, 90, 90),
+                    new Station("Orb Processor", 60, 110, 100, 140),
                     new Station("Dream Visualizer", 400, 110, 140, 90),
                     new Station("Gateway", 740, 110, 110, 90),
                     new Station("Vessel Return", 600, 110, 110, 90),
-                    new Station("Void Siphon", 60, 510, 80, 90),
+                    new Station("The Void", 60, 510, 80, 90),
                     new Station("Crate 1", 380, 320, 60, 60),
                     new Station("Crate 2", 450, 320, 60, 60),
                     new Station("Crate 3", 520, 320, 60, 60),
                 ];
             } else if (levelNum === 3) {
                 this.stations = [
-                    new Station("Happy Dispenser", 60, 300, 90, 90),
-                    new Station("Calm Dispenser", 60, 410, 90, 90),
-                    new Station("Adventure Dispenser", 60, 190, 90, 90),
-                    new Station("Logic Filter", 400, 110, 140, 120),
+                    new Station("Happy Orbs", 60, 300, 90, 90),
+                    new Station("Calm Orbs", 60, 410, 90, 90),
+                    new Station("Adventure Orbs", 60, 190, 90, 90),
+                    new Station("Orb Processor", 400, 110, 140, 120),
                     new Station("Dream Visualizer", 750, 300, 110, 110),
                     new Station("Gateway", 400, 510, 140, 90),
                     new Station("Vessel Return", 750, 510, 110, 90),
-                    new Station("Void Siphon", 750, 110, 90, 90),
+                    new Station("The Void", 750, 110, 90, 90),
                     new Station("Crate 1", 220, 240, 60, 60),
                     new Station("Crate 2", 220, 340, 60, 60),
                     new Station("Crate 3", 220, 440, 60, 60),
                 ];
             } else {
                 this.stations = [
-                    new Station("Happy Dispenser", 160, 110, 90, 90),
-                    new Station("Calm Dispenser", 270, 110, 90, 90),
-                    new Station("Adventure Dispenser", 60, 110, 90, 90),
-                    new Station("Logic Filter", 60, 430, 100, 140),
+                    new Station("Happy Orbs", 160, 110, 90, 90),
+                    new Station("Calm Orbs", 270, 110, 90, 90),
+                    new Station("Adventure Orbs", 60, 110, 90, 90),
+                    new Station("Orb Processor", 60, 430, 100, 140),
                     new Station("Dream Visualizer", 650, 430, 140, 110),
                     new Station("Gateway", 800, 110, 80, 90),
                     new Station("Vessel Return", 800, 230, 80, 90),
-                    new Station("Void Siphon", 800, 350, 80, 90),
+                    new Station("The Void", 800, 350, 80, 90),
                     new Station("Crate 1", 380, 270, 60, 60),
                     new Station("Crate 2", 460, 270, 60, 60),
                     new Station("Crate 3", 540, 270, 60, 60),
@@ -824,7 +824,7 @@
                 ));
             }
 
-            const lf = this.getStation("Logic Filter");
+            const lf = this.getStation("Orb Processor");
             if (lf) {
                 if (this.lfRole === "owner" && !lf.isHighlighted && lf.isCooking) {
                     this.lfRole = null;
@@ -854,7 +854,7 @@
             const now = Date.now();
             if (this.network.connected && this.player && now - this.lastSyncTime >= this.syncInterval) {
                 this.lastSyncTime = now;
-                const lfStation = this.getStation("Logic Filter");
+                const lfStation = this.getStation("Orb Processor");
                 const nearLF = lfStation?.isHighlighted ?? false;
                 const lfHolding = this.lfRole !== null && nearLF && !!this.keys[' '];
                 this.network.sendRaw({
@@ -887,7 +887,7 @@
 
         handleStationInteraction(s) {
 
-            if (s.name === "Void Siphon" && this.player.heldItem) {
+            if (s.name === "The Void" && this.player.heldItem) {
                 if (this.player.heldItem.isVessel) {
                     this.player.heldItem.bundle = [];
                     this.player.heldItem.dishName = null;
@@ -934,7 +934,7 @@
                 return;
             }
 
-            if (s.name.includes("Dispenser") && !this.player.heldItem) {
+            if (s.name.includes("Orbs") && !this.player.heldItem) {
                 this.player.heldItem = new Item(s.name.split(' ')[0], STATION_COLORS[s.name]);
                 return;
             }
@@ -946,7 +946,7 @@
                 return;
             }
 
-            if (s.name === "Logic Filter") {
+            if (s.name === "Orb Processor") {
                 if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && !this.player.heldItem) {
                     this.player.heldItem = deserializeItem(
                         s.heldItem.toServerFormat ? s.heldItem.toServerFormat() : s.heldItem);
@@ -1063,7 +1063,7 @@
                 this.lfOrbInHand = null;
             }
             this.lfRole = null;
-            const lf = this.getStation("Logic Filter");
+            const lf = this.getStation("Orb Processor");
             if (lf && !lf.isCooking) { lf.heldItem = null; }
         }
 
@@ -1072,18 +1072,18 @@
         tutSteps() {
             return [
                 { text: "Welcome to Dreamweaver! You weave dreams from coloured orbs. This tutorial walks you through making a Deep Calm dream — two blue orbs. Click OK to begin.", ok: true, target: null },
-                { text: "Head to the Calm Dispenser — the blue station in the top row.", ok: false, proximity: "Calm Dispenser", target: "Calm Dispenser" },
-                { text: "Press SPACE to pick up a blue orb.", ok: false, target: "Calm Dispenser" },
-                { text: "Bring the orb to the Logic Filter on the right.", ok: false, proximity: "Logic Filter", target: "Logic Filter" },
-                { text: "Press SPACE to place the orb inside the Logic Filter.", ok: false, target: "Logic Filter" },
-                { text: "Hold SPACE to process the orb — keep holding until the bar is full!", ok: false, target: "Logic Filter" },
-                { text: "Orb processed! Press SPACE near the Logic Filter to pick it up.", ok: false, target: "Logic Filter" },
+                { text: "Head to the Calm Orbs — the blue station in the top row.", ok: false, proximity: "Calm Orbs", target: "Calm Orbs" },
+                { text: "Press SPACE to pick up a blue orb.", ok: false, target: "Calm Orbs" },
+                { text: "Bring the orb to the Orb Processor on the right.", ok: false, proximity: "Orb Processor", target: "Orb Processor" },
+                { text: "Press SPACE to place the orb inside the Orb Processor.", ok: false, target: "Orb Processor" },
+                { text: "Hold SPACE to process the orb — keep holding until the bar is full!", ok: false, target: "Orb Processor" },
+                { text: "Orb processed! Press SPACE near the Orb Processor to pick it up.", ok: false, target: "Orb Processor" },
                 { text: "Head to one of the brown Crates in the middle.", ok: false, proximity: "Crate 1", target: "Crate 1" },
                 { text: "Pick up a Vessel from the crate, then press SPACE on the crate while holding it to load the orb.", ok: false, target: "Crate 1" },
-                { text: "One blue orb loaded! Now do the same for a second blue orb — pick it up from the Calm Dispenser, process it, and load it onto the same vessel.", ok: true, target: null },
+                { text: "One blue orb loaded! Now do the same for a second blue orb — pick it up from the Calm Orbs, process it, and load it onto the same vessel.", ok: true, target: null },
                 { text: "Tip: when you deliver a vessel through the Gateway, it returns to the Vessel Return station after a few seconds. Pick it up there to reuse it!", ok: true, target: "Vessel Return" },
-                { text: "Tip: if you ever mess up a vessel, bring it to the Void Siphon and press SPACE — it will clear everything on it so you can start fresh.", ok: true, target: "Void Siphon" },
-                { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Dispenser" },
+                { text: "Tip: if you ever mess up a vessel, bring it to The Void and press SPACE — it will clear everything on it so you can start fresh.", ok: true, target: "The Void" },
+                { text: "Now process and load the second blue orb onto the same vessel.", ok: false, target: "Calm Orbs" },
                 { text: "Both orbs loaded! Head to the Dream Visualizer at the bottom.", ok: false, proximity: "Dream Visualizer", target: "Dream Visualizer" },
                 { text: "Press SPACE while holding the vessel to start cooking the dream.", ok: false, target: "Dream Visualizer" },
                 { text: "The Dream Visualizer is working — wait for the bar to fill completely.", ok: false, target: "Dream Visualizer" },
@@ -1168,7 +1168,7 @@
             if (!step) return;
 
             const all = Object.values(this.playersDict);
-            const lf  = this.getStation("Logic Filter");
+            const lf  = this.getStation("Orb Processor");
             const dv  = this.getStation("Dream Visualizer");
             const c1  = this.getStation("Crate 1");
             const c2  = this.getStation("Crate 2");
