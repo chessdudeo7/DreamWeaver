@@ -287,9 +287,139 @@
         }
 
         draw(ctx) {
-            drawRect(ctx, this.x, this.y, this.w, this.h, this.color, 8);
-            if (this.heldItem) this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2);
+            const cx = this.x + this.w / 2;
+            const cy = this.y + this.h / 2;
+            drawWizard(ctx, cx, cy, this.color);
+            if (this.heldItem) this.heldItem.draw(ctx, cx + 20, cy - 18, 0.7);
         }
+    }
+
+    // ── Wizard sprite renderer ────────────────────────────────────────────────
+    function drawStar(ctx, cx, cy, r, points) {
+        const inner = r * 0.45;
+        ctx.beginPath();
+        for (let i = 0; i < points * 2; i++) {
+            const angle = (Math.PI / points) * i - Math.PI / 2;
+            const rad   = i % 2 === 0 ? r : inner;
+            i === 0
+                ? ctx.moveTo(cx + Math.cos(angle)*rad, cy + Math.sin(angle)*rad)
+                : ctx.lineTo(cx + Math.cos(angle)*rad, cy + Math.sin(angle)*rad);
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawWizard(ctx, cx, cy, color) {
+        const [r, g, b] = color;
+        const isTeal   = r < 50  && g > 200 && b > 150;
+        const isOrange = r > 200 && g < 180 && b < 50;
+        const isGold   = r > 200 && g > 180 && b < 80;
+
+        let robeColor, hatColor, hatBrim, accentColor, skinColor, hatDeco;
+        if (isTeal) {
+            robeColor = [42,90,200]; hatColor = [42,90,200]; hatBrim = [220,230,255];
+            accentColor = [255,210,60]; skinColor = [210,170,120]; hatDeco = 'moon';
+        } else if (isOrange) {
+            robeColor = [220,60,130]; hatColor = [220,60,130]; hatBrim = [255,220,230];
+            accentColor = [255,210,60]; skinColor = [210,170,120]; hatDeco = 'star';
+        } else if (isGold) {
+            robeColor = [40,160,60]; hatColor = [40,160,60]; hatBrim = [180,240,180];
+            accentColor = [255,255,255]; skinColor = [210,170,120]; hatDeco = 'star';
+        } else {
+            // violet — purple wizard with top hat
+            robeColor = [90,50,160]; hatColor = [70,35,130]; hatBrim = [90,50,160];
+            accentColor = [255,210,60]; skinColor = [200,160,110]; hatDeco = 'tophat';
+        }
+
+        const rc = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+        const dk = (c,a) => [Math.max(0,c[0]-a),Math.max(0,c[1]-a),Math.max(0,c[2]-a)];
+        const lt = (c,a) => [Math.min(255,c[0]+a),Math.min(255,c[1]+a),Math.min(255,c[2]+a)];
+
+        ctx.save();
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy+17, 13, 5, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Robe body
+        ctx.fillStyle = rc(robeColor);
+        ctx.beginPath(); ctx.ellipse(cx, cy+6, 14, 16, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = rc(dk(robeColor,40));
+        ctx.beginPath(); ctx.ellipse(cx-4, cy+10, 5, 8, -0.3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = rc(lt(robeColor,40));
+        ctx.beginPath(); ctx.ellipse(cx+3, cy+4, 4, 6, 0.2, 0, Math.PI*2); ctx.fill();
+
+        // Robe star/accent
+        ctx.fillStyle = hatDeco === 'tophat' ? rc([255,210,60]) : rc(accentColor);
+        drawStar(ctx, cx, cy+7, 3.5, 5);
+
+        // Head / face
+        ctx.fillStyle = rc(skinColor);
+        ctx.beginPath(); ctx.arc(cx, cy-4, 9, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = rc(dk(skinColor,25));
+        ctx.beginPath(); ctx.arc(cx-2, cy-3, 4, 0, Math.PI*2); ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#1a0a2e';
+        ctx.beginPath(); ctx.arc(cx-3, cy-5, 1.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx+3, cy-5, 1.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.beginPath(); ctx.arc(cx-2.5, cy-5.5, 0.6, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx+3.5, cy-5.5, 0.6, 0, Math.PI*2); ctx.fill();
+
+        // Hair
+        ctx.fillStyle = '#5c3a1e';
+        ctx.beginPath(); ctx.arc(cx, cy-3, 9, Math.PI*0.6, Math.PI*2.4); ctx.fill();
+
+        // Hat
+        if (hatDeco === 'tophat') {
+            ctx.fillStyle = rc(hatBrim);
+            ctx.beginPath(); ctx.ellipse(cx, cy-10, 13, 4, 0, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = rc(hatColor);
+            ctx.beginPath(); ctx.roundRect(cx-8, cy-26, 16, 17, 2); ctx.fill();
+            ctx.fillStyle = rc(dk(hatColor,30));
+            ctx.beginPath(); ctx.roundRect(cx-8, cy-26, 5, 17, 2); ctx.fill();
+            ctx.fillStyle = rc(accentColor);
+            ctx.fillRect(cx-8, cy-12, 16, 3);
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.beginPath(); ctx.arc(cx+3, cy-21, 1, 0, Math.PI*2); ctx.fill();
+        } else {
+            // Pointy hat — brim
+            ctx.fillStyle = rc(hatBrim);
+            ctx.beginPath(); ctx.ellipse(cx, cy-10, 13, 4.5, 0, 0, Math.PI*2); ctx.fill();
+            // Cone
+            ctx.fillStyle = rc(hatColor);
+            ctx.beginPath();
+            ctx.moveTo(cx, cy-30); ctx.lineTo(cx-11, cy-10); ctx.lineTo(cx+11, cy-10);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = rc(dk(hatColor,50));
+            ctx.beginPath();
+            ctx.moveTo(cx, cy-30); ctx.lineTo(cx-11, cy-10); ctx.lineTo(cx-3, cy-10);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = rc(lt(hatColor,50));
+            ctx.beginPath();
+            ctx.moveTo(cx+1, cy-28); ctx.lineTo(cx+7, cy-13); ctx.lineTo(cx+2, cy-13);
+            ctx.closePath(); ctx.fill();
+            // Hat decoration
+            if (hatDeco === 'moon') {
+                ctx.fillStyle = 'rgba(240,230,255,0.95)';
+                ctx.beginPath(); ctx.arc(cx-1, cy-22, 4, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = rc(hatColor);
+                ctx.beginPath(); ctx.arc(cx+1.5, cy-22, 3, 0, Math.PI*2); ctx.fill();
+            } else {
+                ctx.fillStyle = rc(accentColor);
+                drawStar(ctx, cx+1, cy-20, 3.5, 5);
+            }
+            // White pom-pom on tip
+            if (isTeal || isOrange) {
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.beginPath(); ctx.arc(cx, cy-29, 2.5, 0, Math.PI*2); ctx.fill();
+            }
+        }
+
+        ctx.restore();
     }
 
     // ========== GAME ==========
@@ -680,10 +810,28 @@
             this.currentLevel = levelNum;
             this.gameTimer = this.isTutorial ? Infinity : 120;
             this.gameState = "PLAYING";
-            for (let p of this.connectedPlayers)
-                this.playersDict[p.id] = new Player(WIDTH/2, HEIGHT/2, p.color);
-            if (!this.playersDict[this.myId])
-                this.playersDict[this.myId] = new Player(WIDTH/2, HEIGHT/2, TEAL);
+
+            // Fixed starting positions per player slot for each level
+            // Slots 0-3 correspond to join order (color index)
+            const STARTS = {
+                'tutorial': [[450,350],[350,350],[550,350],[400,400]],
+                1:          [[450,350],[350,350],[550,350],[400,400]],
+                2:          [[450,350],[350,350],[550,350],[400,400]],
+                3:          [[450,350],[350,350],[550,350],[400,400]],
+                4:          [[450,350],[350,350],[550,350],[400,400]],
+            };
+            const starts = STARTS[levelNum] || [[450,350],[350,350],[550,350],[400,400]];
+
+            this.connectedPlayers.forEach((p, idx) => {
+                const [sx, sy] = starts[idx] || starts[0];
+                this.playersDict[p.id] = new Player(sx, sy, p.color);
+            });
+            if (!this.playersDict[this.myId]) {
+                // Our slot is after all connectedPlayers
+                const myIdx = this.connectedPlayers.length;
+                const [sx, sy] = starts[myIdx] || starts[0];
+                this.playersDict[this.myId] = new Player(sx, sy, TEAL);
+            }
             this.player = this.playersDict[this.myId];
 
             this.orders = []; this.score = 0; this.frame = 0; this.spawnTick = 0;
@@ -1363,14 +1511,13 @@
             sorted.slice(0, 20).forEach((e, i) => {
                 const score   = tab === 'total' ? e.total : (e.scores[tab] || 0);
                 const medal   = i === 0 ? '✦' : i === 1 ? '◈' : i === 2 ? '◇' : (i + 1);
+                const isMyRow = this.lbSubmittedId !== null && e.id === this.lbSubmittedId;
 
-                // Stars: show per-level stars if on a level tab, else show per-level breakdown
                 let starsCell = '';
                 if (tab !== 'total') {
                     const s = (e.stars || {})[tab] || 0;
                     starsCell = [0,1,2].map(j => j < s ? '★' : '☆').join('');
                 } else {
-                    // Show total stars across all 4 levels (sum)
                     const st = e.stars || {};
                     const total = (st['1']||0) + (st['2']||0) + (st['3']||0) + (st['4']||0);
                     starsCell = '★'.repeat(total) || '—';
@@ -1380,9 +1527,10 @@
 
                 const row = document.createElement('tr');
                 row.className = i < 3 ? 'lb-top-' + (i+1) : '';
+                if (isMyRow) row.classList.add('lb-my-row');
                 row.innerHTML = `
                     <td class="lb-rank">${medal}</td>
-                    <td class="lb-party">${e.party} ${pcBadge}</td>
+                    <td class="lb-party">${e.party} ${pcBadge}${isMyRow ? ' <span class="lb-you-badge">you</span>' : ''}</td>
                     <td class="lb-stars">${starsCell}</td>
                     <td class="lb-score">${score}</td>`;
                 tbody.appendChild(row);
