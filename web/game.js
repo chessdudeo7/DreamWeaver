@@ -200,64 +200,426 @@
         }
 
         draw(ctx, frame) {
-            const borderColor = this.isHighlighted ? TEAL : WHITE;
-            drawRect(ctx, this.x+5, this.y+5, this.w, this.h, [25,20,45], 12);
-            drawRect(ctx, this.x, this.y, this.w, this.h, this.color, 10);
+            const x = this.x, y = this.y, w = this.w, h = this.h;
+            const cx = x + w/2, cy = y + h/2;
+            const hl = this.isHighlighted;
 
-            if (this.isHighlighted) {
-                ctx.fillStyle = 'rgba(255,255,255,0.1)';
-                roundRect(ctx, this.x, this.y, this.w, this.h, 10); ctx.fill();
-            }
-            ctx.strokeStyle = rgbToString(borderColor); ctx.lineWidth = 2;
-            roundRect(ctx, this.x, this.y, this.w, this.h, 10); ctx.stroke();
-
-            if (!this.name.includes("Crate")) {
-                ctx.save();
-                ctx.font = 'bold 12px Arial';
-                ctx.fillStyle = rgbToString(["The Void","Vessel Return","Orb Processor"].includes(this.name) ? WHITE : [20,20,20]);
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                const words = this.name.split(' ');
-                const lh = 14, sy = this.y + this.h/2 - words.length*lh/2;
-                words.forEach((w, i) => ctx.fillText(w, this.x+this.w/2, sy+i*lh, this.w-10));
-                ctx.restore();
-            }
-
-            if (this.name === "Vessel Return") {
-                for (let i = 0; i < this.vesselCount; i++) {
-                    ctx.strokeStyle = rgbToString(WHITE); ctx.lineWidth = 3;
-                    ctx.beginPath(); ctx.ellipse(this.x+this.w/2, this.y+this.h/2+20-i*8, 22, 12, 0, 0, Math.PI*2); ctx.stroke();
-                    ctx.strokeStyle = rgbToString([200,200,200]); ctx.lineWidth = 1;
-                    ctx.beginPath(); ctx.ellipse(this.x+this.w/2, this.y+this.h/2+20-i*8, 20, 10, 0, 0, Math.PI*2); ctx.stroke();
-                }
-            }
-
-            if (this.name === "Dream Visualizer" && this.heldItem && !this.isCooking) {
-                this.heldItem.draw(ctx, this.x+this.w/2, this.y-25 + Math.sin(frame*0.1)*8);
-            } else if (this.heldItem) {
-                this.heldItem.draw(ctx, this.x+this.w/2, this.y+this.h/2, this.heldItem.isVessel ? 1.5 : 1.0);
+            if (this.name.includes("Crate")) {
+                drawStationCrate(ctx, x, y, w, h, hl, this.heldItem, frame);
+            } else if (this.name === "Happy Orbs") {
+                drawStationDispenser(ctx, x, y, w, h, hl, GOLD, this.heldItem);
+            } else if (this.name === "Calm Orbs") {
+                drawStationDispenser(ctx, x, y, w, h, hl, SKY_BLUE, this.heldItem);
+            } else if (this.name === "Adventure Orbs") {
+                drawStationDispenser(ctx, x, y, w, h, hl, ORANGE, this.heldItem);
+            } else if (this.name === "Orb Processor") {
+                drawStationOrbProcessor(ctx, x, y, w, h, hl, frame,
+                    this.isCooking, this.progress, this.activeHolders, this.heldItem);
+            } else if (this.name === "Dream Visualizer") {
+                drawStationDreamVisualizer(ctx, x, y, w, h, hl, frame,
+                    this.isCooking, this.progress, this.heldItem);
+            } else if (this.name === "The Void") {
+                drawStationTheVoid(ctx, x, y, w, h, hl, frame, this.heldItem);
+            } else if (this.name === "Gateway") {
+                drawStationGateway(ctx, x, y, w, h, hl, frame);
+            } else if (this.name === "Vessel Return") {
+                drawStationVesselReturn(ctx, x, y, w, h, hl, this.vesselCount);
+            } else {
+                // Fallback
+                drawRect(ctx, x+4, y+4, w, h, [25,20,45], 10);
+                drawRect(ctx, x, y, w, h, this.color, 10);
+                if (hl) { ctx.fillStyle='rgba(255,255,255,0.12)'; roundRect(ctx,x,y,w,h,10); ctx.fill(); }
+                ctx.strokeStyle = hl ? rgbToString(TEAL) : rgbToString(WHITE);
+                ctx.lineWidth = 2; roundRect(ctx,x,y,w,h,10); ctx.stroke();
+                if (this.heldItem) this.heldItem.draw(ctx, cx, cy);
             }
 
+            // Progress bar (Orb Processor + Dream Visualizer)
             if (this.progress > 0 && this.progress <= 1.0 &&
                 (this.name === "Orb Processor" || this.name === "Dream Visualizer")) {
-                drawRect(ctx, this.x, this.y+this.h+8, this.w, 8, [50,50,50], 4);
+                drawRect(ctx, x, y+h+6, w, 7, [40,35,60], 3);
                 const barColor = (this.name === "Orb Processor" && this.activeHolders > 1) ? GOLD : TEAL;
-                drawRect(ctx, this.x, this.y+this.h+8, this.w*this.progress, 8, barColor, 4);
+                drawRect(ctx, x, y+h+6, w*this.progress, 7, barColor, 3);
             }
 
+            // IN USE / boost label
             if (this.isCooking && (this.name === "Orb Processor" || this.name === "Dream Visualizer")) {
-                ctx.save();
-                ctx.font = 'bold 10px Arial';
-                ctx.textAlign = 'center';
+                ctx.save(); ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
                 if (this.name === "Orb Processor" && this.activeHolders > 1) {
                     ctx.fillStyle = 'rgba(255,215,0,0.95)';
-                    ctx.fillText(`⚡ x${this.activeHolders}`, this.x+this.w/2, this.y-8);
+                    ctx.fillText(`⚡ x${this.activeHolders}`, cx, y-8);
                 } else {
                     ctx.fillStyle = 'rgba(255,200,0,0.9)';
-                    ctx.fillText('IN USE', this.x+this.w/2, this.y-8);
+                    ctx.fillText('IN USE', cx, y-8);
                 }
                 ctx.restore();
             }
+
+            // Highlight glow outline on top of everything
+            if (hl) {
+                ctx.strokeStyle = rgbToString(TEAL);
+                ctx.lineWidth = 2.5;
+                roundRect(ctx, x, y, w, h, 10);
+                ctx.stroke();
+            }
         }
+    }
+
+    // ── Station draw helpers ──────────────────────────────────────────────────
+
+    // Shared base: tan/brown machine body with drop shadow
+    function stationBase(ctx, x, y, w, h, shadowColor) {
+        // Drop shadow
+        ctx.fillStyle = shadowColor || 'rgba(0,0,0,0.35)';
+        ctx.beginPath(); ctx.roundRect(x+4, y+4, w, h, 10); ctx.fill();
+        // Main body — tan/brown gradient
+        const grad = ctx.createLinearGradient(x, y, x, y+h);
+        grad.addColorStop(0,   '#c9a97a');
+        grad.addColorStop(0.35,'#b8935f');
+        grad.addColorStop(1,   '#8a6a3e');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
+        // Subtle inner bevel highlight
+        ctx.strokeStyle = 'rgba(255,220,150,0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.roundRect(x+2, y+2, w-4, h-4, 8); ctx.stroke();
+        // Outer dark border
+        ctx.strokeStyle = '#5a3e20';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.stroke();
+    }
+
+    // Dark inset panel (viewport for machines)
+    function stationViewport(ctx, cx, cy, rx, ry) {
+        // Outer ring
+        ctx.fillStyle = '#2a1f10';
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx+4, ry+4, 0, 0, Math.PI*2); ctx.fill();
+        // Inner dark chamber
+        const g = ctx.createRadialGradient(cx-rx*0.2, cy-ry*0.2, 2, cx, cy, rx);
+        g.addColorStop(0, '#1e2835');
+        g.addColorStop(1, '#0d0a18');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Small coloured button
+    function stationButton(ctx, cx, cy, r, color) {
+        ctx.fillStyle = '#2a1f10';
+        ctx.beginPath(); ctx.arc(cx, cy, r+2, 0, Math.PI*2); ctx.fill();
+        const g = ctx.createRadialGradient(cx-r*0.3, cy-r*0.3, 0, cx, cy, r);
+        g.addColorStop(0, rgbToString(color.map(c=>Math.min(255,c+60))));
+        g.addColorStop(1, rgbToString(color));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.beginPath(); ctx.arc(cx-r*0.25, cy-r*0.3, r*0.35, 0, Math.PI*2); ctx.fill();
+    }
+
+    function drawStationDispenser(ctx, x, y, w, h, hl, orbColor) {
+        stationBase(ctx, x, y, w, h);
+        const cx = x+w/2, cy = y+h/2;
+        // Platform/pedestal
+        ctx.fillStyle = '#7a5530';
+        ctx.beginPath(); ctx.roundRect(cx-w*0.28, cy-2, w*0.56, h*0.38, 4); ctx.fill();
+        ctx.fillStyle = '#5a3e20';
+        ctx.beginPath(); ctx.roundRect(cx-w*0.28, cy+h*0.28, w*0.56, 6, 3); ctx.fill();
+        // Big orb
+        const or = w * 0.33;
+        const og = ctx.createRadialGradient(cx-or*0.3, cy-h*0.3-or*0.3, or*0.1, cx, cy-h*0.28, or);
+        og.addColorStop(0, rgbToString(orbColor.map(c=>Math.min(255,c+80))));
+        og.addColorStop(0.6, rgbToString(orbColor));
+        og.addColorStop(1,   rgbToString(orbColor.map(c=>Math.max(0,c-60))));
+        ctx.fillStyle = og;
+        ctx.beginPath(); ctx.arc(cx, cy-h*0.18, or, 0, Math.PI*2); ctx.fill();
+        // Orb shine
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.ellipse(cx-or*0.28, cy-h*0.18-or*0.28, or*0.28, or*0.18, -0.5, 0, Math.PI*2); ctx.fill();
+        // Glow
+        ctx.shadowColor = rgbToString(orbColor); ctx.shadowBlur = 14;
+        ctx.beginPath(); ctx.arc(cx, cy-h*0.18, or, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+        // Coloured button below
+        stationButton(ctx, cx, cy+h*0.34, 6, orbColor);
+    }
+
+    function drawStationOrbProcessor(ctx, x, y, w, h, hl, frame, isCooking, progress, activeHolders, heldItem) {
+        stationBase(ctx, x, y, w, h);
+        const cx = x+w/2, cy = y+h/2;
+        const vr = Math.min(w, h) * 0.36;
+
+        // Viewport
+        stationViewport(ctx, cx, cy-h*0.06, vr, vr);
+
+        // Orbiting orbs inside viewport (animated when cooking)
+        const orbColors = [GOLD, SKY_BLUE, ORANGE, [0,220,100]];
+        const n = isCooking ? 3 : 3;
+        for (let i = 0; i < n; i++) {
+            const speed  = isCooking ? 0.04 : 0.008;
+            const angle  = (2*Math.PI/n)*i + frame*speed;
+            const or2    = vr * 0.58;
+            const ox     = cx + Math.cos(angle)*or2;
+            const oy     = (cy-h*0.06) + Math.sin(angle)*or2*0.6;
+            const r2     = vr * 0.22;
+            const g2 = ctx.createRadialGradient(ox-r2*0.3, oy-r2*0.3, 0, ox, oy, r2);
+            g2.addColorStop(0, rgbToString(orbColors[i].map(c=>Math.min(255,c+70))));
+            g2.addColorStop(1, rgbToString(orbColors[i]));
+            ctx.fillStyle = g2;
+            ctx.beginPath(); ctx.arc(ox, oy, r2, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.45)';
+            ctx.beginPath(); ctx.arc(ox-r2*0.25, oy-r2*0.28, r2*0.3, 0, Math.PI*2); ctx.fill();
+        }
+
+        // Clip glow inside viewport
+        if (isCooking) {
+            ctx.save();
+            ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.clip();
+            ctx.fillStyle = `rgba(120,80,255,${0.08 + 0.06*Math.sin(frame*0.1)})`;
+            ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        }
+
+        // Viewport rim
+        ctx.strokeStyle = '#3a2a10'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.stroke();
+
+        // Dial (bottom-right)
+        const dx = cx + w*0.28, dy = cy + h*0.34;
+        ctx.fillStyle = '#3a2a10';
+        ctx.beginPath(); ctx.arc(dx, dy, 7, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#8a7a60';
+        ctx.beginPath(); ctx.arc(dx, dy, 5, 0, Math.PI*2); ctx.fill();
+        const dialAngle = frame*0.03;
+        ctx.strokeStyle = '#1a1010'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(dx+Math.cos(dialAngle)*4, dy+Math.sin(dialAngle)*4); ctx.stroke();
+
+        // Blue button (bottom-left)
+        stationButton(ctx, cx-w*0.25, cy+h*0.34, 6, SKY_BLUE);
+
+        // Held item above station
+        if (heldItem && !isCooking) {
+            heldItem.draw(ctx, cx, y-22 + Math.sin(frame*0.08)*5);
+        }
+    }
+
+    function drawStationDreamVisualizer(ctx, x, y, w, h, hl, frame, isCooking, progress, heldItem) {
+        stationBase(ctx, x, y, w, h);
+        const cx = x+w/2, cy = y+h/2;
+        const vr = Math.min(w,h)*0.36;
+        const vcy = cy - h*0.06;
+
+        stationViewport(ctx, cx, vcy, vr, vr);
+
+        // Dream scene inside viewport
+        ctx.save();
+        ctx.beginPath(); ctx.ellipse(cx, vcy, vr, vr, 0, 0, Math.PI*2); ctx.clip();
+
+        // Night sky gradient
+        const sky = ctx.createLinearGradient(cx, vcy-vr, cx, vcy+vr);
+        sky.addColorStop(0, '#0a0820');
+        sky.addColorStop(1, '#1a1250');
+        ctx.fillStyle = sky; ctx.fillRect(cx-vr, vcy-vr, vr*2, vr*2);
+
+        if (isCooking || progress > 0) {
+            // Stars twinkling
+            const stars = [[0.3,0.2],[0.7,0.15],[0.5,0.5],[0.8,0.4],[0.15,0.6],[0.6,0.7]];
+            stars.forEach(([sx,sy]) => {
+                const alpha = 0.5 + 0.5*Math.sin(frame*0.07 + sx*10);
+                ctx.fillStyle = `rgba(255,255,240,${alpha})`;
+                ctx.beginPath(); ctx.arc(cx-vr+sx*vr*2, vcy-vr+sy*vr*2, 1.2, 0, Math.PI*2); ctx.fill();
+            });
+            // Clouds
+            const co = Math.sin(frame*0.02)*4;
+            ctx.fillStyle = 'rgba(180,190,230,0.55)';
+            ctx.beginPath(); ctx.ellipse(cx-8+co, vcy+vr*0.3, 18, 10, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(cx+10+co, vcy+vr*0.5, 14, 8, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(cx-15+co, vcy+vr*0.55, 12, 7, 0, 0, Math.PI*2); ctx.fill();
+        }
+
+        // Moon
+        ctx.fillStyle = '#f0e870';
+        ctx.beginPath(); ctx.arc(cx+4, vcy-vr*0.35, vr*0.32, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#0a0820';
+        ctx.beginPath(); ctx.arc(cx+10, vcy-vr*0.4, vr*0.24, 0, Math.PI*2); ctx.fill();
+        // Moon glow
+        ctx.fillStyle = 'rgba(255,240,100,0.15)';
+        ctx.beginPath(); ctx.arc(cx+4, vcy-vr*0.35, vr*0.45, 0, Math.PI*2); ctx.fill();
+
+        ctx.restore();
+
+        // Viewport rim
+        ctx.strokeStyle = '#3a2a10'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(cx, vcy, vr, vr, 0, 0, Math.PI*2); ctx.stroke();
+
+        // Indicator lights (bottom row)
+        const ly = cy+h*0.35;
+        const dots = [[ORANGE, 0.15], [[80,200,80], 0.5], [SKY_BLUE, 0.85]];
+        dots.forEach(([c, fx]) => {
+            const pulse = c === ORANGE && isCooking ? 0.4+0.4*Math.sin(frame*0.15) : 1;
+            ctx.globalAlpha = pulse;
+            stationButton(ctx, x+w*fx, ly, 5, c);
+            ctx.globalAlpha = 1;
+        });
+
+        // Yellow button
+        stationButton(ctx, cx-w*0.26, ly, 6, GOLD);
+
+        // Held item floats above when not cooking
+        if (heldItem && !isCooking) {
+            heldItem.draw(ctx, cx, y-22 + Math.sin(frame*0.08)*5);
+        }
+    }
+
+    function drawStationTheVoid(ctx, x, y, w, h, hl, frame, heldItem) {
+        // Dark body
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath(); ctx.roundRect(x+4, y+4, w, h, 10); ctx.fill();
+        const bg = ctx.createLinearGradient(x, y, x, y+h);
+        bg.addColorStop(0, '#1a1520'); bg.addColorStop(1, '#0d0a14');
+        ctx.fillStyle = bg;
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
+        ctx.strokeStyle = '#3a1f50'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.stroke();
+
+        const cx = x+w/2, cy = y+h/2;
+        const vr = Math.min(w,h)*0.34;
+
+        // Viewport
+        stationViewport(ctx, cx, cy-h*0.06, vr, vr);
+
+        // Swirling vortex
+        ctx.save();
+        ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.clip();
+        for (let ring = 3; ring >= 0; ring--) {
+            const rr = vr*(0.25 + ring*0.18);
+            const alpha = 0.15 + ring*0.08;
+            const rot = frame*0.025*(ring%2===0?1:-1);
+            const g = ctx.createConicGradient(rot, cx, cy-h*0.06);
+            g.addColorStop(0,   `rgba(150,0,255,${alpha})`);
+            g.addColorStop(0.5, `rgba(80,0,180,${alpha*0.4})`);
+            g.addColorStop(1,   `rgba(150,0,255,${alpha})`);
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, rr, rr*0.7, rot*0.3, 0, Math.PI*2); ctx.fill();
+        }
+        // Centre bright point
+        ctx.fillStyle = `rgba(200,100,255,${0.6+0.3*Math.sin(frame*0.12)})`;
+        ctx.beginPath(); ctx.arc(cx, cy-h*0.06, vr*0.12, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.beginPath(); ctx.arc(cx, cy-h*0.06, vr*0.04, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+
+        // Viewport rim
+        ctx.strokeStyle = '#6020a0'; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.stroke();
+
+        // Purple button
+        stationButton(ctx, cx, cy+h*0.36, 7, [160,50,220]);
+
+        if (heldItem) heldItem.draw(ctx, cx, cy);
+    }
+
+    function drawStationGateway(ctx, x, y, w, h, hl, frame) {
+        stationBase(ctx, x, y, w, h);
+        const cx = x+w/2, cy = y+h/2;
+
+        // Arch portal
+        const aw = w*0.56, ah = h*0.64;
+        const ax = cx-aw/2, ay = cy-ah*0.55;
+        // Portal glow
+        const pulse = 0.5 + 0.4*Math.sin(frame*0.07);
+        ctx.fillStyle = `rgba(50,255,150,${0.12*pulse})`;
+        ctx.beginPath(); ctx.roundRect(ax-6, ay-6, aw+12, ah+12, (aw/2)+6); ctx.fill();
+        // Portal frame
+        ctx.fillStyle = '#3a2a10';
+        ctx.beginPath(); ctx.roundRect(ax-3, ay-3, aw+6, ah+6, aw/2+3); ctx.fill();
+        // Portal interior
+        const pg = ctx.createLinearGradient(cx, ay, cx, ay+ah);
+        pg.addColorStop(0, `rgba(0,255,150,${0.7+0.2*pulse})`);
+        pg.addColorStop(1, `rgba(0,180,100,${0.4+0.1*pulse})`);
+        ctx.fillStyle = pg;
+        ctx.beginPath(); ctx.roundRect(ax, ay, aw, ah, aw/2); ctx.fill();
+        // Shimmer lines inside portal
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(ax, ay, aw, ah, aw/2); ctx.clip();
+        for (let i = 0; i < 4; i++) {
+            const lx = ax + ((frame*1.5 + i*aw*0.25)%(aw+20)) - 10;
+            ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(lx, ay); ctx.lineTo(lx+8, ay+ah); ctx.stroke();
+        }
+        ctx.restore();
+        // Portal rim
+        ctx.strokeStyle = rgbToString([50,255,150]); ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.roundRect(ax, ay, aw, ah, aw/2); ctx.stroke();
+
+        // Label
+        ctx.save(); ctx.font = 'bold 11px Arial'; ctx.fillStyle = '#1a2a1a';
+        ctx.textAlign = 'center'; ctx.fillText('GATEWAY', cx, y+h-10); ctx.restore();
+    }
+
+    function drawStationVesselReturn(ctx, x, y, w, h, hl, vesselCount) {
+        stationBase(ctx, x, y, w, h);
+        const cx = x+w/2, cy = y+h/2;
+
+        // Label
+        ctx.save(); ctx.font = 'bold 10px Arial'; ctx.fillStyle = '#3a2510';
+        ctx.textAlign = 'center';
+        ctx.fillText('VESSEL', cx, y+14);
+        ctx.fillText('RETURN', cx, y+26);
+        ctx.restore();
+
+        // Stack of vessel dishes
+        const maxV = 3;
+        const baseY = cy + h*0.28;
+        for (let i = 0; i < maxV; i++) {
+            const present = i < vesselCount;
+            const vy = baseY - i*10;
+            const alpha = present ? 1 : 0.18;
+            ctx.globalAlpha = alpha;
+            // Dish outer
+            ctx.fillStyle = '#c9a97a';
+            ctx.beginPath(); ctx.ellipse(cx, vy, w*0.38, h*0.14, 0, 0, Math.PI*2); ctx.fill();
+            // Dish inner bowl
+            ctx.fillStyle = '#e8d4a8';
+            ctx.beginPath(); ctx.ellipse(cx, vy-2, w*0.28, h*0.10, 0, 0, Math.PI*2); ctx.fill();
+            // Rim highlight
+            ctx.strokeStyle = 'rgba(255,220,150,0.6)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.ellipse(cx, vy, w*0.38, h*0.14, 0, 0, Math.PI*2); ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    function drawStationCrate(ctx, x, y, w, h, hl, heldItem, frame) {
+        // Wood base
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath(); ctx.roundRect(x+3, y+3, w, h, 8); ctx.fill();
+        const wg = ctx.createLinearGradient(x, y, x, y+h);
+        wg.addColorStop(0, '#c19a58'); wg.addColorStop(0.5, '#a07840'); wg.addColorStop(1, '#7a5828');
+        ctx.fillStyle = wg;
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.fill();
+
+        // Wood grain lines
+        ctx.strokeStyle = 'rgba(90,60,20,0.35)'; ctx.lineWidth = 1;
+        [0.3, 0.55, 0.75].forEach(t => {
+            ctx.beginPath(); ctx.moveTo(x+2, y+h*t); ctx.lineTo(x+w-2, y+h*t); ctx.stroke();
+        });
+        [0.35, 0.65].forEach(t => {
+            ctx.beginPath(); ctx.moveTo(x+w*t, y+2); ctx.lineTo(x+w*t, y+h-2); ctx.stroke();
+        });
+
+        // Metal corner brackets
+        const bSize = 8;
+        const corners = [[x,y],[x+w-bSize,y],[x,y+h-bSize],[x+w-bSize,y+h-bSize]];
+        ctx.fillStyle = '#5a4a30';
+        corners.forEach(([bx,by]) => {
+            ctx.beginPath(); ctx.roundRect(bx, by, bSize, bSize, 2); ctx.fill();
+        });
+
+        // Outer border
+        ctx.strokeStyle = '#5a3e18'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.stroke();
+
+        // Held item
+        if (heldItem) heldItem.draw(ctx, x+w/2, y+h/2, heldItem.isVessel ? 1.2 : 0.85);
     }
 
     // ========== PLAYER ==========
