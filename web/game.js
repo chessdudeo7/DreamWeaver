@@ -1,7 +1,7 @@
 // ========== CONSTANTS ==========
     const WIDTH = 900, HEIGHT = 700;
-    const MISSED_ORDER_PENALTY = 20;
 
+    // Fixed rendering palette (view-only; not gameplay logic)
     const BLACK = [15, 10, 25];
     const WHITE = [240, 240, 255];
     const GOLD = [255, 215, 0];
@@ -9,34 +9,74 @@
     const ORANGE = [255, 140, 0];
     const TEAL = [0, 255, 200];
 
-    const STATION_COLORS = {
-        "Happy Orbs": GOLD,
-        "Calm Orbs": SKY_BLUE,
-        "Adventure Orbs": ORANGE,
-        "Orb Processor": [100, 110, 130],
-        "Dream Visualizer": [180, 70, 255],
-        "Gateway": [50, 255, 150],
-        "Crate": [110, 70, 40],
-        "The Void": [20, 20, 20],
-        "Vessel Return": [80, 60, 120]
-    };
+    // ── Shared gameplay config ────────────────────────────────────────────────
+    // Populated by applyConfig() from web/config.json — the SAME file the Python
+    // server reads (src/server.py). Never hardcode these values here; edit
+    // config.json so client and server can never drift.
+    let STATION_COLORS          = {};
+    let RECIPES                 = {};
+    let TWO_ORB_RECIPES         = [];
+    let THREE_ORB_RECIPES       = [];
+    let LEVELS                  = {};
+    let LEVEL_STAR_THRESHOLDS   = [60, 120, 180];
+    let MISSED_ORDER_PENALTY    = 20;
+    let WRONG_DELIVERY_PENALTY  = 10;
+    let TWO_ORB_BASE_TIME       = 60.0;
+    let THREE_ORB_BASE_TIME     = 90.0;
+    let PRIORITY_BASE_TIME      = 40.0;
+    let GAME_DURATION           = 120.0;
+    let ORDER_SPAWN_INTERVAL    = 15.0;
+    let MAX_ORDERS              = 5;
+    let TWO_ORB_BASE_POINTS     = 20;
+    let THREE_ORB_BASE_POINTS   = 40;
+    let TWO_ORB_TIME_DIVISOR    = 2;
+    let THREE_ORB_TIME_DIVISOR  = 1.5;
+    let PRIORITY_MULTIPLIER     = 2;
+    let LEVEL3_THREE_ORB_CHANCE = 0.5;
+    let LEVEL4_PRIORITY_CHANCE  = 0.4;
+    let PRIORITY_LEVELS         = [4];
+    let PRIORITY_THREE_ORB_BASE_TIME = 54.0;
+    let DIFFICULTY_SCALING      = null;
 
-    const RECIPES = {
-        // 2-orb recipes
-        "Joyful Slumber":  [GOLD, SKY_BLUE],
-        "Action Flight":   [ORANGE, GOLD],
-        "Deep Calm":       [SKY_BLUE, SKY_BLUE],
-        // 3-orb recipes (level 3)
-        "Vivid Odyssey":   [ORANGE, GOLD, SKY_BLUE],
-        "Velvet Abyss":    [SKY_BLUE, SKY_BLUE, GOLD],
-        "Ember Vision":    [ORANGE, ORANGE, GOLD],
-    };
+    // Difficulty arrays are indexed by (player_count - 1), clamped to 1..4.
+    function scaledByPlayers(key, playerCount) {
+        const arr = DIFFICULTY_SCALING[key];
+        return arr[Math.min(Math.max(playerCount, 1), 4) - 1];
+    }
 
-    const LEVEL_STAR_THRESHOLDS = [60, 120, 180];
+    async function loadConfig() {
+        const res = await fetch('config.json', { cache: 'no-cache' });
+        if (!res.ok) throw new Error('config.json HTTP ' + res.status);
+        applyConfig(await res.json());
+    }
 
-    // Order timers (must match server.py constants)
-    const TWO_ORB_BASE_TIME   = 60.0;
-    const THREE_ORB_BASE_TIME = 90.0;
+    function applyConfig(cfg) {
+        STATION_COLORS        = cfg.station_colors;
+        RECIPES               = cfg.recipes;
+        TWO_ORB_RECIPES       = cfg.two_orb_recipes;
+        THREE_ORB_RECIPES     = cfg.three_orb_recipes;
+        LEVELS                = cfg.levels;
+        const t = cfg.timings, s = cfg.scoring, og = cfg.order_generation;
+        LEVEL_STAR_THRESHOLDS   = s.star_thresholds;
+        MISSED_ORDER_PENALTY    = s.missed_order_penalty;
+        WRONG_DELIVERY_PENALTY  = s.wrong_delivery_penalty;
+        TWO_ORB_BASE_POINTS     = s.two_orb_base_points;
+        THREE_ORB_BASE_POINTS   = s.three_orb_base_points;
+        TWO_ORB_TIME_DIVISOR    = s.two_orb_time_bonus_divisor;
+        THREE_ORB_TIME_DIVISOR  = s.three_orb_time_bonus_divisor;
+        PRIORITY_MULTIPLIER     = s.priority_multiplier;
+        TWO_ORB_BASE_TIME       = t.two_orb_base_time;
+        THREE_ORB_BASE_TIME     = t.three_orb_base_time;
+        PRIORITY_BASE_TIME      = t.priority_base_time;
+        GAME_DURATION           = t.game_duration;
+        ORDER_SPAWN_INTERVAL    = t.order_spawn_interval;
+        MAX_ORDERS              = og.max_orders;
+        LEVEL3_THREE_ORB_CHANCE = og.level3_three_orb_chance;
+        LEVEL4_PRIORITY_CHANCE  = og.level4_priority_chance;
+        PRIORITY_LEVELS         = og.priority_levels || [4];
+        PRIORITY_THREE_ORB_BASE_TIME = t.priority_three_orb_base_time;
+        DIFFICULTY_SCALING      = cfg.difficulty_scaling;
+    }
 
     // ── Star + Score persistence (session-only, resets on page load) ──────────
     const _sessionStars  = {};
@@ -189,6 +229,7 @@
             this.progress = 0; this.isHighlighted = false;
             this.heldItem = null; this.isCooking = false;
             this.vesselCount = 0; this.activeHolders = 0;
+            this.isJammed = false; this.jamProgress = 0;
         }
 
         applyServerState(s) {
@@ -197,6 +238,8 @@
             if (s.is_cooking !== undefined) this.isCooking = s.is_cooking;
             if (s.progress !== undefined) this.progress = s.progress;
             if (s.active_holders !== undefined) this.activeHolders = s.active_holders;
+            if (s.is_jammed !== undefined) this.isJammed = s.is_jammed;
+            if (s.jam_progress !== undefined) this.jamProgress = s.jam_progress;
         }
 
         draw(ctx, frame) {
@@ -261,6 +304,27 @@
                 ctx.lineWidth = 2.5;
                 roundRect(ctx, x, y, w, h, 10);
                 ctx.stroke();
+            }
+
+            // Jammed overlay — machine is temporarily locked (levels 5-6)
+            if (this.isJammed) {
+                const shake = Math.sin(frame * 0.6) * 1.5;
+                ctx.save();
+                ctx.translate(shake, 0);
+                // red wash
+                ctx.fillStyle = 'rgba(220,40,40,0.32)';
+                roundRect(ctx, x, y, w, h, 10); ctx.fill();
+                ctx.strokeStyle = 'rgba(255,80,60,0.95)';
+                ctx.lineWidth = 3;
+                roundRect(ctx, x, y, w, h, 10); ctx.stroke();
+                // warning label + cooldown bar
+                ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center';
+                ctx.fillStyle = 'rgba(255,220,210,0.95)';
+                ctx.fillText('⚠ JAMMED', cx, cy - 2);
+                const bw = w * 0.7;
+                drawRect(ctx, cx - bw/2, cy + 8, bw, 5, [60,20,20], 2);
+                drawRect(ctx, cx - bw/2, cy + 8, bw * this.jamProgress, 5, [255,90,70], 2);
+                ctx.restore();
             }
         }
     }
@@ -803,7 +867,11 @@
             this.stations = [];
             this.orders = [];
             this.score = 0;
-            this.gameTimer = 120;
+            this.gameTimer = GAME_DURATION;
+            this.maxOrders = MAX_ORDERS;
+            this.spawnIntervalSec = ORDER_SPAWN_INTERVAL;
+            this.timerSynced = false;   // snap gameTimer to server on first broadcast of a level
+            this.surgeFlash = 0;        // brief "SURGE" banner timer
             this.frame = 0;
             this.spawnTick = 0;
             this.redFlash = 0;
@@ -906,6 +974,18 @@
             document.getElementById('tutOkBtn').addEventListener('click', () => {
                 this.tutClickOk();
             });
+
+            const muteBtn = document.getElementById('muteBtn');
+            if (muteBtn) {
+                if (window.gameAudio && window.gameAudio.muted) {
+                    muteBtn.textContent = '🔇'; muteBtn.classList.add('muted');
+                }
+                muteBtn.addEventListener('click', () => {
+                    const muted = window.gameAudio ? window.gameAudio.toggleMute() : false;
+                    muteBtn.textContent = muted ? '🔇' : '🔊';
+                    muteBtn.classList.toggle('muted', muted);
+                });
+            }
         }
 
         async hostGame() {
@@ -1070,7 +1150,7 @@
             let target;
             if (!passed) {
                 target = this.currentLevel;
-            } else if (this.currentLevel < 4) {
+            } else if (this.currentLevel < 6) {
                 target = this.currentLevel + 1;
             } else {
                 this.goToMainMenu();
@@ -1094,6 +1174,7 @@
         }
 
         showLevelSelect() {
+            if (window.gameAudio) window.gameAudio.stopMusic();
             refreshStarDisplays();
             document.getElementById('lobbyUI').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'none';
@@ -1170,8 +1251,23 @@
 
             this.isTutorial = (levelNum === 'tutorial');
             this.currentLevel = levelNum;
-            this.gameTimer = this.isTutorial ? Infinity : 120;
             this.gameState = "PLAYING";
+
+            // Difficulty scales with party size. The server is authoritative for the
+            // clock (we snap to its timer on the first broadcast), but we compute a
+            // best-effort estimate here so the HUD is right before that arrives.
+            const _ids = new Set(this.connectedPlayers.map(p => p.id));
+            _ids.add(this.myId);
+            const playerCount = Math.max(1, _ids.size);
+            this.gameTimer        = this.isTutorial ? Infinity : scaledByPlayers('duration_by_players', playerCount);
+            this.maxOrders        = this.isTutorial ? MAX_ORDERS : scaledByPlayers('max_orders_by_players', playerCount);
+            this.spawnIntervalSec = this.isTutorial ? ORDER_SPAWN_INTERVAL : scaledByPlayers('spawn_interval_by_players', playerCount);
+            this.timerSynced      = false;
+            this.surgeFlash       = 0;
+            this._playerCount     = playerCount;
+
+            // Start the ambient soundtrack for this level (no-op if muted/unsupported)
+            if (window.gameAudio) window.gameAudio.startMusic();
 
             // Fixed starting positions per player slot for each level
             // Slots 0-3 correspond to join order (color index)
@@ -1204,63 +1300,11 @@
             for (const p of Object.values(this.playersDict)) p.heldItem = null;
             if (this.player) this.player.heldItem = null;
 
-            if (levelNum === 'tutorial' || levelNum === 1) {
-                this.stations = [
-                    new Station("Happy Orbs", 60, 110, 90, 90),
-                    new Station("Calm Orbs", 160, 110, 90, 90),
-                    new Station("Adventure Orbs", 260, 110, 90, 90),
-                    new Station("Orb Processor", 740, 110, 100, 140),
-                    new Station("Dream Visualizer", 400, 510, 140, 90),
-                    new Station("Gateway", 60, 510, 110, 90),
-                    new Station("Vessel Return", 200, 510, 110, 90),
-                    new Station("The Void", 780, 510, 80, 90),
-                    new Station("Crate 1", 380, 280, 60, 60),
-                    new Station("Crate 2", 450, 280, 60, 60),
-                    new Station("Crate 3", 520, 280, 60, 60),
-                ];
-            } else if (levelNum === 2) {
-                this.stations = [
-                    new Station("Happy Orbs", 740, 510, 90, 90),
-                    new Station("Calm Orbs", 640, 510, 90, 90),
-                    new Station("Adventure Orbs", 540, 510, 90, 90),
-                    new Station("Orb Processor", 60, 110, 100, 140),
-                    new Station("Dream Visualizer", 400, 110, 140, 90),
-                    new Station("Gateway", 740, 110, 110, 90),
-                    new Station("Vessel Return", 600, 110, 110, 90),
-                    new Station("The Void", 60, 510, 80, 90),
-                    new Station("Crate 1", 380, 320, 60, 60),
-                    new Station("Crate 2", 450, 320, 60, 60),
-                    new Station("Crate 3", 520, 320, 60, 60),
-                ];
-            } else if (levelNum === 3) {
-                this.stations = [
-                    new Station("Happy Orbs", 60, 300, 90, 90),
-                    new Station("Calm Orbs", 60, 410, 90, 90),
-                    new Station("Adventure Orbs", 60, 190, 90, 90),
-                    new Station("Orb Processor", 400, 110, 140, 120),
-                    new Station("Dream Visualizer", 750, 300, 110, 110),
-                    new Station("Gateway", 400, 510, 140, 90),
-                    new Station("Vessel Return", 750, 510, 110, 90),
-                    new Station("The Void", 750, 110, 90, 90),
-                    new Station("Crate 1", 220, 240, 60, 60),
-                    new Station("Crate 2", 220, 340, 60, 60),
-                    new Station("Crate 3", 220, 440, 60, 60),
-                ];
-            } else {
-                this.stations = [
-                    new Station("Happy Orbs", 160, 110, 90, 90),
-                    new Station("Calm Orbs", 270, 110, 90, 90),
-                    new Station("Adventure Orbs", 60, 110, 90, 90),
-                    new Station("Orb Processor", 60, 430, 100, 140),
-                    new Station("Dream Visualizer", 650, 430, 140, 110),
-                    new Station("Gateway", 800, 110, 80, 90),
-                    new Station("Vessel Return", 800, 230, 80, 90),
-                    new Station("The Void", 800, 350, 80, 90),
-                    new Station("Crate 1", 380, 270, 60, 60),
-                    new Station("Crate 2", 460, 270, 60, 60),
-                    new Station("Crate 3", 540, 270, 60, 60),
-                ];
-            }
+            // Station layouts come from web/config.json (shared with the server).
+            // Tutorial reuses the level 1 layout, matching the server.
+            const layoutKey = this.isTutorial ? '1' : String(levelNum);
+            const layout = LEVELS[layoutKey] || LEVELS['1'];
+            this.stations = layout.map(([name, x, y, w, h]) => new Station(name, x, y, w, h));
 
             if (this.isTutorial) {
                 this.orders = [
@@ -1275,30 +1319,33 @@
                     }, 400);
                 }
             } else {
-                for (let i = 0; i < 3; i++) this.addOrder();
+                const n = scaledByPlayers('initial_orders_by_players', this._playerCount || 1);
+                if (PRIORITY_LEVELS.includes(this.currentLevel)) {
+                    for (let i = 0; i < Math.max(0, n - 1); i++) this.addOrder();
+                    this.addOrder(true);   // priority levels open with one guaranteed priority order
+                } else {
+                    for (let i = 0; i < n; i++) this.addOrder();
+                }
             }
         }
 
-        addOrder() {
-            const twoOrb   = ["Joyful Slumber", "Action Flight", "Deep Calm"];
-            const threeOrb = ["Vivid Odyssey", "Velvet Abyss", "Ember Vision"];
-            let name, is_priority = false, is_three_orb = false;
-            if (this.currentLevel === 4) {
-                is_priority = Math.random() < 0.35;
-                name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
-            } else if (this.currentLevel === 3) {
-                name = Math.random() < 0.5
-                    ? twoOrb[Math.floor(Math.random()   * twoOrb.length)]
-                    : threeOrb[Math.floor(Math.random() * threeOrb.length)];
-                is_three_orb = threeOrb.includes(name);
-            } else {
-                name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
-            }
-            // 2-orb: 60s base; 3-orb: 90s base; priority (2-orb only): 40s
+        // Mirrors the server's _add_order so the brief pre-broadcast state matches.
+        addOrder(forcePriority = false, timeMult = 1) {
+            const twoOrb = TWO_ORB_RECIPES, threeOrb = THREE_ORB_RECIPES, all = Object.keys(RECIPES);
+            const is_priority = forcePriority ||
+                (PRIORITY_LEVELS.includes(this.currentLevel) && Math.random() < LEVEL4_PRIORITY_CHANCE);
+            let name;
+            if (this.currentLevel === 4)       name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
+            else if (this.currentLevel <= 2)   name = twoOrb[Math.floor(Math.random() * twoOrb.length)];
+            else                               name = all[Math.floor(Math.random() * all.length)];
+            const is_three_orb = threeOrb.includes(name);
+
             let baseTime;
-            if (is_priority) baseTime = 40;
-            else if (is_three_orb) baseTime = THREE_ORB_BASE_TIME;
-            else baseTime = TWO_ORB_BASE_TIME;
+            if (is_priority && is_three_orb) baseTime = PRIORITY_THREE_ORB_BASE_TIME;
+            else if (is_priority)            baseTime = PRIORITY_BASE_TIME;
+            else if (is_three_orb)           baseTime = THREE_ORB_BASE_TIME;
+            else                             baseTime = TWO_ORB_BASE_TIME;
+            baseTime *= timeMult;
 
             this.orders.push({ name, time: baseTime, max: baseTime,
                 recipe: RECIPES[name], is_priority, is_three_orb });
@@ -1308,6 +1355,13 @@
             if (!this.network.connected || !this.network.ws) return;
             try { this.network.ws.send(JSON.stringify({ action: "STATION_UPDATE", ...payload })); }
             catch(e) { console.error("STATION_UPDATE failed:", e); }
+        }
+
+        // Safe sound-cue helper — no-op if audio is unavailable
+        _sfx(name) {
+            if (window.gameAudio && typeof window.gameAudio[name] === 'function') {
+                window.gameAudio[name]();
+            }
         }
 
         getStation(name) { return this.stations.find(s => s.name === name); }
@@ -1323,9 +1377,10 @@
 
             if (this.redFlash > 0) this.redFlash -= dt;
             if (this.greenFlash > 0) this.greenFlash -= dt;
+            if (this.surgeFlash > 0) this.surgeFlash -= dt;
 
             this.spawnTick += dt;
-            if (!this.isTutorial && this.spawnTick > 15 && this.orders.length < 5) { this.addOrder(); this.spawnTick = 0; }
+            if (!this.isTutorial && this.spawnTick > this.spawnIntervalSec && this.orders.length < this.maxOrders) { this.addOrder(); this.spawnTick = 0; }
 
             for (let s of this.stations) {
                 s.isHighlighted = !!( this.player && this.collideRects(
@@ -1387,7 +1442,9 @@
                 o.time -= dt;
                 if (o.time <= 0) {
                     this.score -= MISSED_ORDER_PENALTY;
-                    this.redFlash = 0.3; return false;
+                    this.redFlash = 0.3;
+                    if (window.gameAudio) window.gameAudio.expire();
+                    return false;
                 }
                 return true;
             });
@@ -1417,35 +1474,42 @@
                             pItem.dishName = sItem.name; pItem.dishColor = sItem.color;
                             s.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
+                            this._sfx('place');
                         } else if (sItem.isProcessed && !pItem.dishName && !(sItem.name in RECIPES) && sItem.name !== "Abstract Mush") {
                             // Raw processed orb (single ingredient) — push its color onto bundle
                             pItem.bundle.push(sItem.color);
                             s.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
+                            this._sfx('place');
                         }
                     } else if (!pItem.isVessel && sItem.isVessel && !sItem.dishName) {
                         if (pItem.isProcessed && (pItem.name in RECIPES || pItem.name === "Abstract Mush")) {
                             // Finished dream orb in hand — load as dish onto vessel in crate
                             sItem.dishName = pItem.name; sItem.dishColor = pItem.color; this.player.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
+                            this._sfx('place');
                         } else if (pItem.isProcessed && !(pItem.name in RECIPES) && pItem.name !== "Abstract Mush") {
                             // Raw processed orb in hand — push color onto vessel bundle in crate
                             sItem.bundle.push(pItem.color); this.player.heldItem = null;
                             this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: sItem.toServerFormat() });
+                            this._sfx('place');
                         }
                     }
                 } else if (!this.player.heldItem && s.heldItem) {
                     this.player.heldItem = s.heldItem; s.heldItem = null;
                     this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: null });
+                    this._sfx('pickup');
                 } else if (this.player.heldItem && !s.heldItem) {
                     s.heldItem = this.player.heldItem; this.player.heldItem = null;
                     this.sendStationUpdate({ update_type: "item", station_name: s.name, held_item: s.heldItem.toServerFormat() });
+                    this._sfx('place');
                 }
                 return;
             }
 
             if (s.name.includes("Orbs") && !this.player.heldItem) {
                 this.player.heldItem = new Item(s.name.split(' ')[0], STATION_COLORS[s.name]);
+                this._sfx('pickup');
                 return;
             }
 
@@ -1453,23 +1517,31 @@
                 s.vesselCount--;
                 this.player.heldItem = new Item("Vessel", WHITE, false, true);
                 this.sendStationUpdate({ update_type: "vessel_take" });
+                this._sfx('pickup');
                 return;
             }
 
             if (s.name === "Orb Processor") {
+                // Jammed machine — placing is blocked until it cools down
+                if (s.isJammed && this.player.heldItem &&
+                    !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
+                    this._sfx('jam');
+                    return;
+                }
                 if (!s.isCooking && s.heldItem && s.heldItem.isProcessed && !this.player.heldItem) {
                     this.player.heldItem = deserializeItem(
                         s.heldItem.toServerFormat ? s.heldItem.toServerFormat() : s.heldItem);
                     this.lfRole = null;
                     this.lfOrbInHand = null;
                     this.sendStationUpdate({ update_type: "logic_filter_pickup" });
+                    this._sfx('pickup');
                     return;
                 }
                 if (s.isCooking && this.lfRole === null) {
                     this.lfRole = "helper";
                     return;
                 }
-                if (!s.isCooking && this.lfRole === null &&
+                if (!s.isCooking && !s.isJammed && this.lfRole === null &&
                     this.player.heldItem && !this.player.heldItem.isVessel && !this.player.heldItem.isProcessed) {
                     this.lfOrbInHand = this.player.heldItem;
                     this.player.heldItem = null;
@@ -1481,6 +1553,7 @@
                         update_type: "logic_filter_place",
                         orb_item: this.lfOrbInHand.toServerFormat()
                     });
+                    this._sfx('place');
                     return;
                 }
                 return;
@@ -1494,16 +1567,20 @@
                         this.player.heldItem = s.heldItem;
                         s.heldItem = null;
                         this.sendStationUpdate({ update_type: "dream_pickup" });
+                        this._sfx('pickup');
                     } else if (this.player.heldItem.isVessel && !this.player.heldItem.dishName && !this.player.heldItem.bundle.length) {
                         this.player.heldItem.dishName = s.heldItem.name;
                         this.player.heldItem.dishColor = s.heldItem.color;
                         s.heldItem = null;
                         this.sendStationUpdate({ update_type: "dream_pickup" });
+                        this._sfx('pickup');
                     }
                     return;
                 }
 
                 if (this.player.heldItem?.isVessel && this.player.heldItem.bundle.length > 0) {
+                    // Jammed visualizer — can't start a cook until it cools down
+                    if (s.isJammed) { this._sfx('jam'); return; }
                     const bundle = [...this.player.heldItem.bundle];
                     const dummy = new Item("Bundle", WHITE, true);
                     dummy.bundle = bundle;
@@ -1514,6 +1591,7 @@
                     this.player.heldItem.dishName = null;
                     this.player.heldItem.dishColor = null;
                     this.sendStationUpdate({ update_type: "dream_cook_start", bundle });
+                    this._sfx('process');
                 }
                 return;
             }
@@ -1534,19 +1612,22 @@
                             const ord        = this.orders[i];
                             const isP        = !!ord.is_priority;
                             const is3        = !!ord.is_three_orb;
-                            const base       = is3 ? 40 : 20;
-                            const timeBonus  = Math.floor(ord.time / (is3 ? 1.5 : 2));
-                            this.score      += (base + timeBonus) * (isP ? 2 : 1);
+                            const base       = is3 ? THREE_ORB_BASE_POINTS : TWO_ORB_BASE_POINTS;
+                            const divisor    = is3 ? THREE_ORB_TIME_DIVISOR : TWO_ORB_TIME_DIVISOR;
+                            const timeBonus  = Math.floor(ord.time / divisor);
+                            this.score      += (base + timeBonus) * (isP ? PRIORITY_MULTIPLIER : 1);
                             this.orders.splice(i, 1);
                             delivered = true; break;
                         }
                     }
                     if (delivered) {
                         this.greenFlash = 0.1;
+                        this._sfx('success');
                     } else {
                         // Wrong dream or order expired — small penalty, red flash
-                        this.score -= 10;
+                        this.score -= WRONG_DELIVERY_PENALTY;
                         this.redFlash = 0.3;
+                        this._sfx('fail');
                     }
 
                     if (this.network.connected && this.network.ws) {
@@ -1903,6 +1984,8 @@
             this._clearSession();  // level finished normally — don't resume this session
             document.getElementById('tutorialDialog').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'flex';
+            if (window.gameAudio) window.gameAudio.stopMusic();
+            this._sfx('levelComplete');
 
             if (this.isTutorial) {
                 setBestStars('tutorial', 1);
@@ -1942,7 +2025,7 @@
 
             const nextBtn = document.getElementById('nextLevelBtn');
             document.getElementById('mainMenuBtn').textContent = 'Dream Atlas';
-            if (passed && this.currentLevel < 4) {
+            if (passed && this.currentLevel < 6) {
                 nextBtn.textContent = 'Next Dream →';
             } else if (passed) {
                 nextBtn.textContent = 'All Dreams Woven ✦';
@@ -2007,6 +2090,21 @@
                     this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
                 }
 
+                // Surge wave banner (levels with surge enabled)
+                if (this.surgeFlash > 0) {
+                    const a = Math.min(1, this.surgeFlash / 1.6);
+                    this.ctx.save();
+                    this.ctx.globalAlpha = a;
+                    this.ctx.fillStyle = 'rgba(255,80,30,0.16)';
+                    this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+                    this.ctx.globalAlpha = a * (0.7 + 0.3*Math.sin(this.frame*0.4));
+                    this.ctx.font = 'bold 46px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillStyle = rgbToString([255,120,50]);
+                    this.ctx.fillText('⚡ SURGE ⚡', WIDTH/2, 150);
+                    this.ctx.restore();
+                }
+
                 this.ctx.font = 'bold 28px Arial';
                 this.ctx.textAlign = 'right';
                 if (!this.isTutorial) {
@@ -2034,6 +2132,21 @@
     let game;
 
     async function main() {
+        // Load shared gameplay config (recipes, layouts, timings, scoring) before
+        // anything else — the SAME web/config.json the server reads. Retry a couple
+        // of times so a transient hiccup on the static host doesn't blank the game.
+        for (let attempt = 1; ; attempt++) {
+            try { await loadConfig(); break; }
+            catch (e) {
+                console.error('Failed to load config.json (attempt ' + attempt + '):', e);
+                if (attempt >= 3) {
+                    alert('Could not load game data. Please refresh the page.');
+                    return;
+                }
+                await new Promise(r => setTimeout(r, 600));
+            }
+        }
+
         game = new Game();
 
         try {
@@ -2132,8 +2245,17 @@
                 }
 
                 const ss = data.game_state;
-                if (ss.game_timer > 0 && Math.abs(ss.game_timer - game.gameTimer) < 5)
-                    game.gameTimer = ss.game_timer;
+                // Server owns the clock (its duration scales with party size). Snap to it
+                // on the first broadcast of a level, then smooth small drifts thereafter.
+                if (ss.game_timer > 0) {
+                    if (!game.timerSynced) { game.gameTimer = ss.game_timer; game.timerSynced = true; }
+                    else if (Math.abs(ss.game_timer - game.gameTimer) < 5) game.gameTimer = ss.game_timer;
+                }
+                // Surge wave just fired — flash a banner + alert cue
+                if (ss.surge && !game.isTutorial) {
+                    game.surgeFlash = 1.6;
+                    game._sfx('surge');
+                }
                 if (Date.now() - game.lastDeliveryTime > 500) {
                     game.score = ss.score;
                     game.orders = ss.orders;

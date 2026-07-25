@@ -1,0 +1,167 @@
+{
+  "_comment": "Single source of truth for DreamWeaver gameplay data. Read by BOTH the Python server (src/server.py) and the web client (web/game.js). Change values here only — do not re-hardcode them in server.py or game.js.",
+
+  "player_colors": [[0, 255, 200], [255, 140, 0], [255, 215, 0], [180, 70, 255]],
+
+  "station_colors": {
+    "Happy Orbs": [255, 215, 0],
+    "Calm Orbs": [0, 191, 255],
+    "Adventure Orbs": [255, 140, 0],
+    "Orb Processor": [100, 110, 130],
+    "Dream Visualizer": [180, 70, 255],
+    "Gateway": [50, 255, 150],
+    "Crate": [110, 70, 40],
+    "The Void": [20, 20, 20],
+    "Vessel Return": [80, 60, 120]
+  },
+
+  "recipes": {
+    "Joyful Slumber": [[255, 215, 0], [0, 191, 255]],
+    "Action Flight":  [[255, 140, 0], [255, 215, 0]],
+    "Deep Calm":      [[0, 191, 255], [0, 191, 255]],
+    "Vivid Odyssey":  [[255, 140, 0], [255, 215, 0], [0, 191, 255]],
+    "Velvet Abyss":   [[0, 191, 255], [0, 191, 255], [255, 215, 0]],
+    "Ember Vision":   [[255, 140, 0], [255, 140, 0], [255, 215, 0]]
+  },
+
+  "two_orb_recipes": ["Joyful Slumber", "Action Flight", "Deep Calm"],
+  "three_orb_recipes": ["Vivid Odyssey", "Velvet Abyss", "Ember Vision"],
+
+  "timings": {
+    "dream_visualizer_cook_time": 5.0,
+    "logic_filter_process_time": 2.5,
+    "two_orb_base_time": 60.0,
+    "three_orb_base_time": 90.0,
+    "priority_base_time": 40.0,
+    "priority_three_orb_base_time": 54.0,
+    "game_duration": 120.0,
+    "order_spawn_interval": 15.0
+  },
+
+  "scoring": {
+    "missed_order_penalty": 20,
+    "wrong_delivery_penalty": 10,
+    "two_orb_base_points": 20,
+    "three_orb_base_points": 40,
+    "two_orb_time_bonus_divisor": 2,
+    "three_orb_time_bonus_divisor": 1.5,
+    "priority_multiplier": 2,
+    "star_thresholds": [60, 120, 180]
+  },
+
+  "order_generation": {
+    "max_orders": 5,
+    "level3_three_orb_chance": 0.5,
+    "level4_priority_chance": 0.4,
+    "level4_priority_force_chance": 0.35,
+    "priority_levels": [4, 5, 6]
+  },
+
+  "_difficulty_scaling_comment": "Arrays indexed by (player_count - 1), clamped to 1..4 players. Solo gets more time and slower/fewer orders; four players get a tighter clock and heavier order pressure. Applied on top of each level's base rules.",
+  "difficulty_scaling": {
+    "duration_by_players": [150, 135, 125, 120],
+    "spawn_interval_by_players": [22, 17, 14, 12],
+    "max_orders_by_players": [3, 4, 5, 5],
+    "initial_orders_by_players": [2, 3, 3, 3]
+  },
+
+  "_mechanics_comment": "Per-level special mechanics. 'jam': machines can overload and lock briefly after finishing. 'surge': periodic bursts of orders. Levels 1-4 keep their original behaviour (no entry = no special mechanics).",
+  "level_mechanics": {
+    "5": { "jam": true, "surge": false },
+    "6": { "jam": true, "surge": true }
+  },
+
+  "jam": {
+    "chance": 0.4,
+    "duration": 4.0,
+    "jammable_stations": ["Orb Processor", "Dream Visualizer"]
+  },
+
+  "surge": {
+    "interval": 24.0,
+    "count": 3,
+    "time_mult": 0.6,
+    "hard_cap": 7
+  },
+
+  "levels": {
+    "1": [
+      ["Happy Orbs", 60, 110, 90, 90],
+      ["Calm Orbs", 160, 110, 90, 90],
+      ["Adventure Orbs", 260, 110, 90, 90],
+      ["Orb Processor", 740, 110, 100, 140],
+      ["Dream Visualizer", 400, 510, 140, 90],
+      ["Gateway", 60, 510, 110, 90],
+      ["Vessel Return", 200, 510, 110, 90],
+      ["The Void", 780, 510, 80, 90],
+      ["Crate 1", 380, 280, 60, 60],
+      ["Crate 2", 450, 280, 60, 60],
+      ["Crate 3", 520, 280, 60, 60]
+    ],
+    "2": [
+      ["Happy Orbs", 740, 510, 90, 90],
+      ["Calm Orbs", 640, 510, 90, 90],
+      ["Adventure Orbs", 540, 510, 90, 90],
+      ["Orb Processor", 60, 110, 100, 140],
+      ["Dream Visualizer", 400, 110, 140, 90],
+      ["Gateway", 740, 110, 110, 90],
+      ["Vessel Return", 600, 110, 110, 90],
+      ["The Void", 60, 510, 80, 90],
+      ["Crate 1", 380, 320, 60, 60],
+      ["Crate 2", 450, 320, 60, 60],
+      ["Crate 3", 520, 320, 60, 60]
+    ],
+    "3": [
+      ["Happy Orbs", 60, 300, 90, 90],
+      ["Calm Orbs", 60, 410, 90, 90],
+      ["Adventure Orbs", 60, 190, 90, 90],
+      ["Orb Processor", 400, 110, 140, 120],
+      ["Dream Visualizer", 750, 300, 110, 110],
+      ["Gateway", 400, 510, 140, 90],
+      ["Vessel Return", 750, 510, 110, 90],
+      ["The Void", 750, 110, 90, 90],
+      ["Crate 1", 220, 240, 60, 60],
+      ["Crate 2", 220, 340, 60, 60],
+      ["Crate 3", 220, 440, 60, 60]
+    ],
+    "4": [
+      ["Happy Orbs", 160, 110, 90, 90],
+      ["Calm Orbs", 270, 110, 90, 90],
+      ["Adventure Orbs", 60, 110, 90, 90],
+      ["Orb Processor", 60, 430, 100, 140],
+      ["Dream Visualizer", 650, 430, 140, 110],
+      ["Gateway", 800, 110, 80, 90],
+      ["Vessel Return", 800, 230, 80, 90],
+      ["The Void", 800, 350, 80, 90],
+      ["Crate 1", 380, 270, 60, 60],
+      ["Crate 2", 460, 270, 60, 60],
+      ["Crate 3", 540, 270, 60, 60]
+    ],
+    "5": [
+      ["Happy Orbs", 700, 110, 90, 90],
+      ["Calm Orbs", 700, 220, 90, 90],
+      ["Adventure Orbs", 700, 330, 90, 90],
+      ["Orb Processor", 60, 430, 100, 140],
+      ["Dream Visualizer", 60, 110, 140, 110],
+      ["Gateway", 700, 510, 110, 90],
+      ["Vessel Return", 400, 510, 110, 90],
+      ["The Void", 60, 300, 80, 90],
+      ["Crate 1", 360, 270, 60, 60],
+      ["Crate 2", 430, 270, 60, 60],
+      ["Crate 3", 500, 270, 60, 60]
+    ],
+    "6": [
+      ["Happy Orbs", 60, 110, 90, 90],
+      ["Calm Orbs", 760, 110, 90, 90],
+      ["Adventure Orbs", 410, 110, 90, 90],
+      ["Orb Processor", 400, 470, 100, 120],
+      ["Dream Visualizer", 60, 450, 140, 110],
+      ["Gateway", 760, 450, 110, 90],
+      ["Vessel Return", 760, 300, 90, 90],
+      ["The Void", 60, 300, 80, 90],
+      ["Crate 1", 340, 290, 60, 60],
+      ["Crate 2", 420, 290, 60, 60],
+      ["Crate 3", 500, 290, 60, 60]
+    ]
+  }
+}

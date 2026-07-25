@@ -8,38 +8,72 @@ import os
 import ssl
 from time import time
 
-PLAYER_COLORS = [(0, 255, 200), (255, 140, 0), (255, 215, 0), (180, 70, 255)]
+# ── Shared config ────────────────────────────────────────────────────────────
+# Single source of truth for all gameplay data (recipes, colours, timings,
+# scoring, level layouts). The web client reads the SAME file (web/config.json),
+# so the two can never drift. Change values there — never re-hardcode here.
+def _load_config():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "config.json")
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+CONFIG = _load_config()
+
+PLAYER_COLORS = [tuple(c) for c in CONFIG["player_colors"]]
 HOST = "0.0.0.0"
 PORT = int(os.getenv("PORT", 5555))
 
-RECIPES = {
-    # 2-orb recipes
-    "Joyful Slumber": [[255, 215, 0], [0, 191, 255]],
-    "Action Flight":  [[255, 140, 0], [255, 215, 0]],
-    "Deep Calm":      [[0, 191, 255], [0, 191, 255]],
-    # 3-orb recipes (level 3)
-    "Vivid Odyssey":  [[255, 140, 0], [255, 215, 0], [0, 191, 255]],
-    "Velvet Abyss":   [[0, 191, 255], [0, 191, 255], [255, 215, 0]],
-    "Ember Vision":   [[255, 140, 0], [255, 140, 0], [255, 215, 0]],
-}
-STATION_COLORS = {
-    "Happy Orbs": [255, 215, 0],
-    "Calm Orbs": [0, 191, 255],
-    "Adventure Orbs": [255, 140, 0],
-    "Orb Processor": [100, 110, 130],
-    "Dream Visualizer": [180, 70, 255],
-    "Gateway": [50, 255, 150],
-    "Crate": [110, 70, 40],
-    "The Void": [20, 20, 20],
-    "Vessel Return": [80, 60, 120]
-}
+RECIPES = CONFIG["recipes"]
+STATION_COLORS = CONFIG["station_colors"]
+LEVELS = CONFIG["levels"]
 
-DREAM_VISUALIZER_COOK_TIME = 5.0
-LOGIC_FILTER_PROCESS_TIME = 2.5
+_TWO_ORB_RECIPES   = set(CONFIG["two_orb_recipes"])
+_THREE_ORB_RECIPES = set(CONFIG["three_orb_recipes"])
 
-# Order timers
-TWO_ORB_BASE_TIME   = 60.0
-THREE_ORB_BASE_TIME = 90.0   # was sharing 60s with 2-orb; now gets extra 30s
+_T = CONFIG["timings"]
+DREAM_VISUALIZER_COOK_TIME = _T["dream_visualizer_cook_time"]
+LOGIC_FILTER_PROCESS_TIME  = _T["logic_filter_process_time"]
+TWO_ORB_BASE_TIME    = _T["two_orb_base_time"]
+THREE_ORB_BASE_TIME  = _T["three_orb_base_time"]
+PRIORITY_BASE_TIME   = _T["priority_base_time"]
+GAME_DURATION        = _T["game_duration"]
+ORDER_SPAWN_INTERVAL = _T["order_spawn_interval"]
+
+_S = CONFIG["scoring"]
+MISSED_ORDER_PENALTY    = _S["missed_order_penalty"]
+WRONG_DELIVERY_PENALTY  = _S["wrong_delivery_penalty"]
+TWO_ORB_BASE_POINTS     = _S["two_orb_base_points"]
+THREE_ORB_BASE_POINTS   = _S["three_orb_base_points"]
+TWO_ORB_TIME_DIVISOR    = _S["two_orb_time_bonus_divisor"]
+THREE_ORB_TIME_DIVISOR  = _S["three_orb_time_bonus_divisor"]
+PRIORITY_MULTIPLIER     = _S["priority_multiplier"]
+
+PRIORITY_THREE_ORB_BASE_TIME = _T["priority_three_orb_base_time"]
+
+_OG = CONFIG["order_generation"]
+MAX_ORDERS                   = _OG["max_orders"]
+LEVEL3_THREE_ORB_CHANCE      = _OG["level3_three_orb_chance"]
+LEVEL4_PRIORITY_CHANCE       = _OG["level4_priority_chance"]
+LEVEL4_PRIORITY_FORCE_CHANCE = _OG["level4_priority_force_chance"]
+PRIORITY_LEVELS              = set(_OG.get("priority_levels", [4]))
+
+# Difficulty scales with party size (arrays indexed by player_count-1, clamped 1..4)
+_DS = CONFIG["difficulty_scaling"]
+def scaled(key, player_count):
+    arr = _DS[key]
+    return arr[min(max(player_count, 1), 4) - 1]
+
+# Per-level special mechanics + their tuning
+LEVEL_MECHANICS   = CONFIG.get("level_mechanics", {})
+_JAM              = CONFIG.get("jam", {})
+JAM_CHANCE        = _JAM.get("chance", 0.4)
+JAM_DURATION      = _JAM.get("duration", 4.0)
+JAMMABLE_STATIONS = set(_JAM.get("jammable_stations", []))
+_SURGE            = CONFIG.get("surge", {})
+SURGE_INTERVAL    = _SURGE.get("interval", 24.0)
+SURGE_COUNT       = _SURGE.get("count", 3)
+SURGE_TIME_MULT   = _SURGE.get("time_mult", 0.6)
+SURGE_HARD_CAP    = _SURGE.get("hard_cap", 7)
 
 rooms = {}
 client_to_room = {}
@@ -425,12 +459,22 @@ async def schedule_vessel_respawn(room_code, delay=5.0, generation=None):
 # ── Game State ───────────────────────────────────────────────────────────────
 
 class GameState:
-    def __init__(self, level=1, is_tutorial=False):
+    def __init__(self, level=1, is_tutorial=False, player_count=1):
         self.level = level
         self.is_tutorial = is_tutorial
+        self.player_count = max(1, min(4, player_count))
         self.state = "PLAYING"
         self.score = 0
-        self.game_timer = 120.0
+        # Difficulty scales with party size
+        self.game_timer     = GAME_DURATION if is_tutorial else scaled("duration_by_players", self.player_count)
+        self.spawn_interval = scaled("spawn_interval_by_players", self.player_count)
+        self.max_orders     = scaled("max_orders_by_players", self.player_count)
+        # Level mechanics (jamming machines, order surges)
+        _mech = LEVEL_MECHANICS.get(str(level), {})
+        self.jam_enabled   = bool(_mech.get("jam", False))
+        self.surge_enabled = bool(_mech.get("surge", False))
+        self.surge_tick    = 0.0
+        self.surge_ping    = False
         self.frame = 0
         self.spawn_tick = 0
         self.orders = []
@@ -444,62 +488,9 @@ class GameState:
         self._spawn_initial_orders()
 
     def _create_stations(self, level):
-        if level == 1:
-            configs = [
-                ("Happy Orbs", 60, 110, 90, 90),
-                ("Calm Orbs", 160, 110, 90, 90),
-                ("Adventure Orbs", 260, 110, 90, 90),
-                ("Orb Processor", 740, 110, 100, 140),
-                ("Dream Visualizer", 400, 510, 140, 90),
-                ("Gateway", 60, 510, 110, 90),
-                ("Vessel Return", 200, 510, 110, 90),
-                ("The Void", 780, 510, 80, 90),
-                ("Crate 1", 380, 280, 60, 60),
-                ("Crate 2", 450, 280, 60, 60),
-                ("Crate 3", 520, 280, 60, 60),
-            ]
-        elif level == 2:
-            configs = [
-                ("Happy Orbs", 740, 510, 90, 90),
-                ("Calm Orbs", 640, 510, 90, 90),
-                ("Adventure Orbs", 540, 510, 90, 90),
-                ("Orb Processor", 60, 110, 100, 140),
-                ("Dream Visualizer", 400, 110, 140, 90),
-                ("Gateway", 740, 110, 110, 90),
-                ("Vessel Return", 600, 110, 110, 90),
-                ("The Void", 60, 510, 80, 90),
-                ("Crate 1", 380, 320, 60, 60),
-                ("Crate 2", 450, 320, 60, 60),
-                ("Crate 3", 520, 320, 60, 60),
-            ]
-        elif level == 3:
-            configs = [
-                ("Happy Orbs", 60, 300, 90, 90),
-                ("Calm Orbs", 60, 410, 90, 90),
-                ("Adventure Orbs", 60, 190, 90, 90),
-                ("Orb Processor", 400, 110, 140, 120),
-                ("Dream Visualizer", 750, 300, 110, 110),
-                ("Gateway", 400, 510, 140, 90),
-                ("Vessel Return", 750, 510, 110, 90),
-                ("The Void", 750, 110, 90, 90),
-                ("Crate 1", 220, 240, 60, 60),
-                ("Crate 2", 220, 340, 60, 60),
-                ("Crate 3", 220, 440, 60, 60),
-            ]
-        else:  # level 4
-            configs = [
-                ("Happy Orbs", 160, 110, 90, 90),
-                ("Calm Orbs", 270, 110, 90, 90),
-                ("Adventure Orbs", 60, 110, 90, 90),
-                ("Orb Processor", 60, 430, 100, 140),
-                ("Dream Visualizer", 650, 430, 140, 110),
-                ("Gateway", 800, 110, 80, 90),
-                ("Vessel Return", 800, 230, 80, 90),
-                ("The Void", 800, 350, 80, 90),
-                ("Crate 1", 380, 270, 60, 60),
-                ("Crate 2", 460, 270, 60, 60),
-                ("Crate 3", 540, 270, 60, 60),
-            ]
+        # Layouts live in web/config.json (shared with the client). Fall back to
+        # level 1 if an unknown level id somehow arrives.
+        configs = LEVELS.get(str(level), LEVELS["1"])
 
         for name, x, y, w, h in configs:
             self.stations[name] = {
@@ -511,6 +502,9 @@ class GameState:
                 "is_cooking": False,
                 "vessel_count": 0,
                 "active_holders": 0,
+                "is_jammed": False,
+                "jam_timer": 0.0,
+                "jam_progress": 0.0,
             }
             self.station_locks[name] = None
 
@@ -529,39 +523,44 @@ class GameState:
                 {"name": "Joyful Slumber", "time": 9999.0, "max": 9999.0, "recipe": RECIPES["Joyful Slumber"],
                  "is_priority": False, "is_three_orb": False},
             ]
-        elif self.level == 4:
-            self._add_order(force_priority=False)
-            self._add_order(force_priority=False)
+            return
+        n = scaled("initial_orders_by_players", self.player_count)
+        if self.level in PRIORITY_LEVELS:
+            # Priority levels open with one guaranteed priority order + the rest normal
+            for _ in range(max(0, n - 1)):
+                self._add_order(force_priority=False)
             self._add_order(force_priority=True)
         else:
-            for _ in range(3):
+            for _ in range(n):
                 self._add_order()
 
-    TWO_ORB_RECIPES   = {"Joyful Slumber", "Action Flight", "Deep Calm"}
-    THREE_ORB_RECIPES = {"Vivid Odyssey", "Velvet Abyss", "Ember Vision"}
+    TWO_ORB_RECIPES   = _TWO_ORB_RECIPES
+    THREE_ORB_RECIPES = _THREE_ORB_RECIPES
 
-    def _add_order(self, force_priority=False):
-        if len(self.orders) >= 5:
+    def _add_order(self, force_priority=False, time_mult=1.0, cap=None):
+        cap = self.max_orders if cap is None else cap
+        if len(self.orders) >= cap:
             return
+        is_priority = force_priority or (self.level in PRIORITY_LEVELS and random.random() < LEVEL4_PRIORITY_CHANCE)
         if self.level == 4:
-            is_priority = force_priority or (random.random() < 0.4)
+            name = random.choice(list(self.TWO_ORB_RECIPES))   # level 4's priority rush stays 2-orb
+        elif self.level <= 2:
             name = random.choice(list(self.TWO_ORB_RECIPES))
         else:
-            is_priority = False
-            if self.level <= 2:
-                name = random.choice(list(self.TWO_ORB_RECIPES))
-            else:
-                name = random.choice(list(RECIPES.keys()))
+            name = random.choice(list(RECIPES.keys()))          # levels 3, 5, 6: full recipe set
 
         is_three_orb = name in self.THREE_ORB_RECIPES
 
-        # 2-orb orders: 60s base; 3-orb orders: 90s base (extra time for extra complexity)
-        if is_priority:
-            base_time = 40.0   # priority is always 2-orb (level 4 only)
+        # 2-orb: 60s; 3-orb: 90s; priority is tighter (higher reward). Surges shorten further.
+        if is_priority and is_three_orb:
+            base_time = PRIORITY_THREE_ORB_BASE_TIME
+        elif is_priority:
+            base_time = PRIORITY_BASE_TIME
         elif is_three_orb:
             base_time = THREE_ORB_BASE_TIME
         else:
             base_time = TWO_ORB_BASE_TIME
+        base_time *= time_mult
 
         self.orders.append({
             "name": name,
@@ -610,19 +609,38 @@ class GameState:
             self.state = "LEVEL_COMPLETE"
 
         self.frame += 1
+        self.surge_ping = False   # one-shot flag; only true on the tick a surge fires
         if not self.is_tutorial:
             self.spawn_tick += dt
-            if self.spawn_tick > 15 and len(self.orders) < 5:
-                force_p = (self.level == 4 and random.random() < 0.35)
+            if self.spawn_tick > self.spawn_interval and len(self.orders) < self.max_orders:
+                force_p = (self.level == 4 and random.random() < LEVEL4_PRIORITY_FORCE_CHANCE)
                 self._add_order(force_priority=force_p)
                 self.spawn_tick = 0
+
+            # Surge waves — periodic bursts of orders (levels with surge enabled)
+            if self.surge_enabled:
+                self.surge_tick += dt
+                if self.surge_tick >= SURGE_INTERVAL:
+                    self.surge_tick = 0.0
+                    for _ in range(SURGE_COUNT):
+                        self._add_order(time_mult=SURGE_TIME_MULT, cap=SURGE_HARD_CAP)
+                    self.surge_ping = True
+
+        # Jam countdowns — jammed machines are unusable until they cool down
+        for s in self.stations.values():
+            if s.get("is_jammed"):
+                s["jam_timer"] = max(0.0, s["jam_timer"] - dt)
+                s["jam_progress"] = s["jam_timer"] / JAM_DURATION if JAM_DURATION else 0.0
+                if s["jam_timer"] <= 0.0:
+                    s["is_jammed"] = False
+                    s["jam_progress"] = 0.0
 
         remaining = []
         for o in self.orders:
             if not self.is_tutorial:
                 o["time"] -= dt
             if not self.is_tutorial and o["time"] <= 0:
-                self.score -= 20
+                self.score -= MISSED_ORDER_PENALTY
             else:
                 remaining.append(o)
         self.orders = remaining
@@ -643,6 +661,7 @@ class GameState:
                 dv["is_cooking"] = False
                 dv["progress"] = 0.0
                 self.station_locks["Dream Visualizer"] = None
+                self._maybe_jam(dv)
 
         # Orb Processor — speed scales with holders
         lf = self.stations.get("Orb Processor")
@@ -659,9 +678,17 @@ class GameState:
                     lf["active_holders"] = 0
                     self.logic_filter_holders.clear()
                     self.station_locks["Orb Processor"] = None
+                    self._maybe_jam(lf)
         else:
             if lf:
                 lf["active_holders"] = 0
+
+    def _maybe_jam(self, station):
+        """A jam-enabled machine may overload and lock for a few seconds after finishing."""
+        if self.jam_enabled and station["name"] in JAMMABLE_STATIONS and random.random() < JAM_CHANCE:
+            station["is_jammed"]    = True
+            station["jam_timer"]    = JAM_DURATION
+            station["jam_progress"] = 1.0
 
     def to_dict(self, tutorial_state=None):
         d = {
@@ -674,6 +701,7 @@ class GameState:
             "stations": self.stations,
             "station_locks": self.station_locks,
             "logic_filter_holders": len(self.logic_filter_holders),
+            "surge": self.surge_ping,
         }
         if tutorial_state is not None:
             d["tutorial"] = tutorial_state.to_dict()
@@ -869,7 +897,8 @@ async def handle_client(websocket):
                             continue
                         is_tut = (level == "tutorial")
                         server_level = 1 if is_tut else level
-                        new_gs = GameState(server_level, is_tutorial=is_tut)
+                        pc = len(rooms[current_room]["players_dict"]) or 1
+                        new_gs = GameState(server_level, is_tutorial=is_tut, player_count=pc)
                         rooms[current_room]["game_state"] = new_gs
                         # Bug 6 fix: always clear tutorial_state when loading any level
                         rooms[current_room]["tutorial_state"] = None
@@ -958,7 +987,7 @@ async def handle_client(websocket):
 
                             elif update_type == "logic_filter_place":
                                 lf = game_state.stations.get("Orb Processor")
-                                if lf and not lf["is_cooking"] and not lf["held_item"]:
+                                if lf and not lf["is_cooking"] and not lf["held_item"] and not lf.get("is_jammed"):
                                     if game_state.try_lock("Orb Processor", client_id):
                                         lf["held_item"] = request.get("orb_item")
                                         lf["is_cooking"] = True
@@ -1010,7 +1039,7 @@ async def handle_client(websocket):
 
                             elif update_type == "dream_cook_start":
                                 dv = game_state.stations.get("Dream Visualizer")
-                                if dv and not dv["is_cooking"] and not dv["held_item"]:
+                                if dv and not dv["is_cooking"] and not dv["held_item"] and not dv.get("is_jammed"):
                                     if game_state.try_lock("Dream Visualizer", client_id):
                                         bundle = request.get("bundle", [])
                                         dv["held_item"] = {
@@ -1099,16 +1128,17 @@ async def handle_client(websocket):
                                 if order["name"] == dish_name:
                                     is_priority  = order.get("is_priority", False)
                                     is_three_orb = order.get("is_three_orb", False)
-                                    base         = 40 if is_three_orb else 20
-                                    time_bonus   = int(order["time"] / (1.5 if is_three_orb else 2))
-                                    points       = (base + time_bonus) * (2 if is_priority else 1)
+                                    base         = THREE_ORB_BASE_POINTS if is_three_orb else TWO_ORB_BASE_POINTS
+                                    divisor      = THREE_ORB_TIME_DIVISOR if is_three_orb else TWO_ORB_TIME_DIVISOR
+                                    time_bonus   = int(order["time"] / divisor)
+                                    points       = (base + time_bonus) * (PRIORITY_MULTIPLIER if is_priority else 1)
                                     game_state.score += points
                                     game_state.orders.pop(i)
                                     delivered = True
                                     break
                             if not delivered:
-                                # Wrong dream or order expired — -10 pts (less than -20 for missing)
-                                game_state.score -= 10
+                                # Wrong dream or order expired — smaller penalty than a full miss
+                                game_state.score -= WRONG_DELIVERY_PENALTY
                             # Return vessel regardless of whether delivery matched an order
                             if is_vessel:
                                 asyncio.create_task(schedule_vessel_respawn(

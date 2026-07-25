@@ -14,6 +14,9 @@
         <canvas id="gameCanvas" width="900" height="700"></canvas>
     </div>
 
+    <!-- Sound toggle (always visible, top-right) -->
+    <button id="muteBtn" class="mute-btn" title="Toggle sound" aria-label="Toggle sound">🔊</button>
+
     <!-- Floating orbs background (shared across overlays) -->
     <div class="orb-field" aria-hidden="true">
         <div class="orb" style="--c:255,215,0;  --x:12%; --y:18%; --s:18px; --d:0s;   --drift:22px"></div>
@@ -171,6 +174,47 @@
                 </div>
 
             </div>
+
+            <!-- Row 3: Levels 5, 6 (advanced — new mechanics) -->
+            <div class="level-grid level-grid-bottom">
+
+                <div class="level-card" data-level="5">
+                    <div class="level-card-glow"></div>
+                    <div class="level-card-orbs">
+                        <span class="lc-orb" style="--c:255,80,30;  --lx:14%; --ly:35%"></span>
+                        <span class="lc-orb" style="--c:0,191,255;  --lx:62%; --ly:55%"></span>
+                        <span class="lc-orb" style="--c:180,70,255; --lx:82%; --ly:22%"></span>
+                    </div>
+                    <div class="level-card-content">
+                        <div class="level-number">V</div>
+                        <div class="level-name">The Fracturing</div>
+                        <div class="level-desc">Machines overload and jam.<br>Adapt, or grind to a halt.</div>
+                        <div class="level-footer">
+                            <div class="level-stars" data-level="5">☆☆☆</div>
+                        </div>
+                        <div class="level-highscore" data-level="5"></div>
+                    </div>
+                </div>
+
+                <div class="level-card" data-level="6">
+                    <div class="level-card-glow"></div>
+                    <div class="level-card-orbs">
+                        <span class="lc-orb" style="--c:255,80,30;  --lx:12%; --ly:28%"></span>
+                        <span class="lc-orb" style="--c:255,215,0;  --lx:52%; --ly:64%"></span>
+                        <span class="lc-orb" style="--c:180,70,255; --lx:80%; --ly:26%"></span>
+                    </div>
+                    <div class="level-card-content">
+                        <div class="level-number">VI</div>
+                        <div class="level-name">The Nightmare</div>
+                        <div class="level-desc">Jams and surging waves.<br>The final descent.</div>
+                        <div class="level-footer">
+                            <div class="level-stars" data-level="6">☆☆☆</div>
+                        </div>
+                        <div class="level-highscore" data-level="6"></div>
+                    </div>
+                </div>
+
+            </div>
         </div>
     </div>
 
@@ -264,6 +308,7 @@
     </div>
 
     <script src="network.js"></script>
+    <script src="audio.js"></script>
     <script src="game.js"></script>
 </body>
 </html>
