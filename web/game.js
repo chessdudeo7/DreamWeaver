@@ -19,6 +19,7 @@
     let THREE_ORB_RECIPES       = [];
     let LEVELS                  = {};
     let LEVEL_STAR_THRESHOLDS   = [60, 120, 180];
+    let STAR_THRESHOLDS_BY_PLAYERS = null;
     let MISSED_ORDER_PENALTY    = 20;
     let WRONG_DELIVERY_PENALTY  = 10;
     let TWO_ORB_BASE_TIME       = 60.0;
@@ -58,6 +59,7 @@
         LEVELS                = cfg.levels;
         const t = cfg.timings, s = cfg.scoring, og = cfg.order_generation;
         LEVEL_STAR_THRESHOLDS   = s.star_thresholds;
+        STAR_THRESHOLDS_BY_PLAYERS = s.star_thresholds_by_players || null;
         MISSED_ORDER_PENALTY    = s.missed_order_penalty;
         WRONG_DELIVERY_PENALTY  = s.wrong_delivery_penalty;
         TWO_ORB_BASE_POINTS     = s.two_orb_base_points;
@@ -159,50 +161,46 @@
         }
 
         draw(ctx, x, y, scale = 1.0) {
-            const pulse = Math.sin(Date.now() * 0.01) * 2;
+            const pulse = Math.sin(Date.now() * 0.006) * 1.5;
             const r = (12 + pulse) * scale;
 
             if (this.isVessel) {
-                ctx.strokeStyle = rgbToString([120, 100, 200]); ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.ellipse(x, y, 24, 14, 0, 0, Math.PI*2); ctx.stroke();
+                // A glowing dream-bubble that carries orbs or a finished dream
+                const br = 22 * scale;
+                radialGlow(ctx, x, y, br*1.6, DREAM.foam, 0.28, 0);
+                const g = ctx.createRadialGradient(x-br*0.3, y-br*0.3, 0, x, y, br);
+                g.addColorStop(0, rgbaHex(DREAM.cream, 0.55));
+                g.addColorStop(0.7, rgbaHex(DREAM.foam, 0.22));
+                g.addColorStop(1, rgbaHex(DREAM.foam, 0.12));
+                ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, br, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = rgbaHex(DREAM.cream, 0.7); ctx.lineWidth = 1.6;
+                ctx.beginPath(); ctx.arc(x, y, br, 0, Math.PI*2); ctx.stroke();
+                ctx.fillStyle = rgbaHex(DREAM.cream, 0.9);
+                ctx.beginPath(); ctx.arc(x-br*0.36, y-br*0.38, br*0.16, 0, Math.PI*2); ctx.fill();
                 if (this.dishName) {
-                    const dr = Math.max(3, r*0.6);
-                    drawCircle(ctx, x, y-8, dr, this.dishColor);
-                    drawCircle(ctx, x, y-8, Math.max(1, dr-3), WHITE);
+                    dreamOrb(ctx, x, y, br*0.5, this.dishColor);
                 } else if (this.bundle.length > 0) {
                     for (let i = 0; i < this.bundle.length; i++) {
-                        const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.005;
-                        const ir = this.bundle.length > 2 ? 5 : 7;
-                        const or = this.bundle.length > 2 ? 10 : 14;
-                        drawCircle(ctx, x+Math.cos(a)*or, y-8+Math.sin(a)*or, ir, this.bundle[i]);
-                        drawCircle(ctx, x+Math.cos(a)*or, y-8+Math.sin(a)*or, Math.max(1,ir-3), WHITE);
+                        const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.004;
+                        const or = br*0.48;
+                        dreamOrb(ctx, x+Math.cos(a)*or, y+Math.sin(a)*or, br*0.24, this.bundle[i]);
                     }
                 }
             } else if (this.isProcessed && this.bundle.length > 0) {
-                // Finished dream orb — show the woven color body + orbiting ingredient dots
-                // so players can identify which dream it is even after processing
-                ctx.strokeStyle = rgbToString(this.color); ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.arc(x, y, r+4, 0, Math.PI*2); ctx.stroke();
-                drawCircle(ctx, x, y, r, this.color);
-                // Sparkling inner highlight to signal "done"
-                drawCircle(ctx, x, y, r * 0.35, WHITE);
-                // Ingredient dots orbit tightly around the body
-                const orbitR = r + 10;
+                // Finished dream — luminous woven body with orbiting ingredient motes
+                dreamOrb(ctx, x, y, r, this.color);
+                const orbitR = r + 9;
                 for (let i = 0; i < this.bundle.length; i++) {
                     const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.004;
-                    const dx = Math.cos(a)*orbitR, dy = Math.sin(a)*orbitR;
-                    drawCircle(ctx, x+dx, y+dy, 6, this.bundle[i]);
-                    drawCircle(ctx, x+dx, y+dy, 3, WHITE);
+                    dreamOrb(ctx, x+Math.cos(a)*orbitR, y+Math.sin(a)*orbitR, 5*scale, this.bundle[i]);
                 }
+                dreamSparkle(ctx, x+r*0.6, y-r*0.6, 3*scale, rgbaHex(DREAM.cream, 0.85));
             } else {
-                ctx.strokeStyle = rgbToString(this.color); ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.arc(x, y, r+4, 0, Math.PI*2); ctx.stroke();
-                drawCircle(ctx, x, y, r, this.color);
-                if (!this.isProcessed) drawCircle(ctx, x, y, r/2, WHITE);
+                // A single luminous orb (raw or processed)
+                dreamOrb(ctx, x, y, r, this.color);
                 for (let i = 0; i < this.bundle.length; i++) {
                     const a = (2*Math.PI/this.bundle.length)*i + Date.now()*0.005;
-                    drawCircle(ctx, x+Math.cos(a)*25, y+Math.sin(a)*25, 8, this.bundle[i]);
-                    drawCircle(ctx, x+Math.cos(a)*25, y+Math.sin(a)*25, 4, WHITE);
+                    dreamOrb(ctx, x+Math.cos(a)*24*scale, y+Math.sin(a)*24*scale, 7*scale, this.bundle[i]);
                 }
             }
         }
@@ -298,12 +296,16 @@
                 ctx.restore();
             }
 
-            // Highlight glow outline on top of everything
+            // Highlight — a soft glowing outline when a dreamer is near
             if (hl) {
-                ctx.strokeStyle = rgbToString(TEAL);
-                ctx.lineWidth = 2.5;
-                roundRect(ctx, x, y, w, h, 10);
+                ctx.save();
+                ctx.strokeStyle = rgbaArr(TEAL, 0.85);
+                ctx.lineWidth = 2;
+                ctx.shadowColor = rgbaArr(TEAL, 0.9);
+                ctx.shadowBlur = 12;
+                roundRect(ctx, x-1, y-1, w+2, h+2, 14);
                 ctx.stroke();
+                ctx.restore();
             }
 
             // Jammed overlay — machine is temporarily locked (levels 5-6)
@@ -329,361 +331,206 @@
         }
     }
 
-    // ── Station draw helpers ──────────────────────────────────────────────────
-
-    // Shared base: tan/brown machine body with drop shadow
-    function stationBase(ctx, x, y, w, h, shadowColor) {
-        // Drop shadow
-        ctx.fillStyle = shadowColor || 'rgba(0,0,0,0.35)';
-        ctx.beginPath(); ctx.roundRect(x+4, y+4, w, h, 10); ctx.fill();
-        // Main body — tan/brown gradient
-        const grad = ctx.createLinearGradient(x, y, x, y+h);
-        grad.addColorStop(0,   '#c9a97a');
-        grad.addColorStop(0.35,'#b8935f');
-        grad.addColorStop(1,   '#8a6a3e');
-        ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
-        // Subtle inner bevel highlight
-        ctx.strokeStyle = 'rgba(255,220,150,0.45)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.roundRect(x+2, y+2, w-4, h-4, 8); ctx.stroke();
-        // Outer dark border
-        ctx.strokeStyle = '#5a3e20';
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.stroke();
+    // ── Dream art helpers ─────────────────────────────────────────────────────
+    // Stations are drawn as luminous dream-objects on the dark playfield rather
+    // than as machines. These primitives are shared by the station renderers and
+    // by Item.draw so orbs, moons and glows read consistently across the game.
+    const DREAM = {
+        lav:'#c3b3f0', foam:'#8fe8d4', moon:'#ffe9b0',
+        violet:'#b98cff', cream:'#fff6e0', indigo:'#241a52'
+    };
+    function rgbaHex(hex, a){ const n = parseInt(hex.slice(1),16);
+        return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; }
+    function rgbaArr(c, a){ return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+    function radialGlow(ctx, x, y, r, color, a0, a1){
+        const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(1, r));
+        const s = typeof color === 'string';
+        g.addColorStop(0, s ? rgbaHex(color, a0) : rgbaArr(color, a0));
+        g.addColorStop(1, s ? rgbaHex(color, a1) : rgbaArr(color, a1));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+    }
+    function dreamSparkle(ctx, x, y, s, color){
+        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.3; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x-s,y); ctx.lineTo(x+s,y); ctx.moveTo(x,y-s); ctx.lineTo(x,y+s);
+        ctx.stroke(); ctx.restore();
+    }
+    // A luminous orb — soft halo, cream-cored body, highlight. c is an [r,g,b] array.
+    function dreamOrb(ctx, x, y, r, c){
+        radialGlow(ctx, x, y, r*2.4, c, 0.4, 0);
+        const g = ctx.createRadialGradient(x-r*0.3, y-r*0.3, 0, x, y, r);
+        g.addColorStop(0, rgbaHex(DREAM.cream, 0.95));
+        g.addColorStop(0.45, rgbaArr(c, 0.98));
+        g.addColorStop(1, rgbaArr(c, 0.55));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = rgbaHex(DREAM.cream, 0.85);
+        ctx.beginPath(); ctx.arc(x-r*0.32, y-r*0.34, r*0.2, 0, Math.PI*2); ctx.fill();
+    }
+    // A glowing full moon — halo, luminous disc, soft craters, rim.
+    function dreamMoon(ctx, cx, cy, r){
+        radialGlow(ctx, cx, cy, r*1.9, DREAM.moon, 0.28, 0);
+        const g = ctx.createRadialGradient(cx-r*0.3, cy-r*0.35, 0, cx, cy, r);
+        g.addColorStop(0, rgbaHex(DREAM.cream, 1));
+        g.addColorStop(0.6, rgbaHex(DREAM.moon, 1));
+        g.addColorStop(1, '#e9c878');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = rgbaHex('#e6c070', 0.5);
+        [[cx-r*0.3,cy-r*0.1,r*0.22],[cx+r*0.28,cy+r*0.22,r*0.16],[cx+r*0.05,cy-r*0.4,r*0.12]]
+            .forEach(([px,py,pr]) => { ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fill(); });
+        ctx.strokeStyle = rgbaHex(DREAM.moon, 0.7); ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
     }
 
-    // Dark inset panel (viewport for machines)
-    function stationViewport(ctx, cx, cy, rx, ry) {
-        // Outer ring
-        ctx.fillStyle = '#2a1f10';
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx+4, ry+4, 0, 0, Math.PI*2); ctx.fill();
-        // Inner dark chamber
-        const g = ctx.createRadialGradient(cx-rx*0.2, cy-ry*0.2, 2, cx, cy, rx);
-        g.addColorStop(0, '#1e2835');
-        g.addColorStop(1, '#0d0a18');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Small coloured button
-    function stationButton(ctx, cx, cy, r, color) {
-        ctx.fillStyle = '#2a1f10';
-        ctx.beginPath(); ctx.arc(cx, cy, r+2, 0, Math.PI*2); ctx.fill();
-        const g = ctx.createRadialGradient(cx-r*0.3, cy-r*0.3, 0, cx, cy, r);
-        g.addColorStop(0, rgbToString(color.map(c=>Math.min(255,c+60))));
-        g.addColorStop(1, rgbToString(color));
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.beginPath(); ctx.arc(cx-r*0.25, cy-r*0.3, r*0.35, 0, Math.PI*2); ctx.fill();
-    }
-
+    // Dispenser → a Well of starlight: a cupped basin of glowing light with a
+    // floating orb rising above it.
     function drawStationDispenser(ctx, x, y, w, h, hl, orbColor) {
-        stationBase(ctx, x, y, w, h);
-        const cx = x+w/2, cy = y+h/2;
-        // Platform/pedestal
-        ctx.fillStyle = '#7a5530';
-        ctx.beginPath(); ctx.roundRect(cx-w*0.28, cy-2, w*0.56, h*0.38, 4); ctx.fill();
-        ctx.fillStyle = '#5a3e20';
-        ctx.beginPath(); ctx.roundRect(cx-w*0.28, cy+h*0.28, w*0.56, 6, 3); ctx.fill();
-        // Big orb
-        const or = w * 0.33;
-        const og = ctx.createRadialGradient(cx-or*0.3, cy-h*0.3-or*0.3, or*0.1, cx, cy-h*0.28, or);
-        og.addColorStop(0, rgbToString(orbColor.map(c=>Math.min(255,c+80))));
-        og.addColorStop(0.6, rgbToString(orbColor));
-        og.addColorStop(1,   rgbToString(orbColor.map(c=>Math.max(0,c-60))));
-        ctx.fillStyle = og;
-        ctx.beginPath(); ctx.arc(cx, cy-h*0.18, or, 0, Math.PI*2); ctx.fill();
-        // Orb shine
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.beginPath(); ctx.ellipse(cx-or*0.28, cy-h*0.18-or*0.28, or*0.28, or*0.18, -0.5, 0, Math.PI*2); ctx.fill();
-        // Glow
-        ctx.shadowColor = rgbToString(orbColor); ctx.shadowBlur = 14;
-        ctx.beginPath(); ctx.arc(cx, cy-h*0.18, or, 0, Math.PI*2); ctx.fill();
-        ctx.shadowBlur = 0;
-        // Coloured button below
-        stationButton(ctx, cx, cy+h*0.34, 6, orbColor);
+        const cx = x+w/2;
+        const poolY = y+h*0.66, poolRx = w*0.42, poolRy = h*0.11;
+        const orbY = y+h*0.34, orbR = Math.min(w,h)*0.2;
+        // basin
+        ctx.beginPath();
+        ctx.moveTo(cx-poolRx*1.06, poolY);
+        ctx.quadraticCurveTo(cx, poolY+h*0.26, cx+poolRx*1.06, poolY);
+        ctx.quadraticCurveTo(cx+poolRx*0.8, poolY+h*0.05, cx, poolY+h*0.06);
+        ctx.quadraticCurveTo(cx-poolRx*0.8, poolY+h*0.05, cx-poolRx*1.06, poolY);
+        ctx.closePath();
+        ctx.fillStyle = DREAM.indigo; ctx.fill();
+        ctx.strokeStyle = rgbaHex(DREAM.lav, 0.5); ctx.lineWidth = 1.5; ctx.stroke();
+        // pool of light
+        ctx.save(); ctx.beginPath(); ctx.ellipse(cx, poolY, poolRx, poolRy, 0, 0, Math.PI*2); ctx.clip();
+        radialGlow(ctx, cx, poolY, poolRx*1.1, orbColor, 0.9, 0.05); ctx.restore();
+        ctx.beginPath(); ctx.ellipse(cx, poolY, poolRx, poolRy, 0, 0, Math.PI*2);
+        ctx.strokeStyle = rgbaArr(orbColor, 0.8); ctx.lineWidth = 2; ctx.stroke();
+        // rising orb + motes
+        radialGlow(ctx, cx, orbY, orbR*2.2, orbColor, 0.28, 0);
+        dreamOrb(ctx, cx, orbY, orbR, orbColor);
+        for (let i=0;i<3;i++){ const mx=cx-w*0.2+i*w*0.2, my=orbY-orbR-6-((i*7)%12);
+            ctx.fillStyle=rgbaArr(orbColor,0.6); ctx.beginPath(); ctx.arc(mx,my,1.6,0,Math.PI*2); ctx.fill(); }
     }
 
+    // Orb Processor → a Moon-Forge: a glowing moon with raw orbs caught orbiting
+    // in its pull. Orbits speed up while it's refining.
     function drawStationOrbProcessor(ctx, x, y, w, h, hl, frame, isCooking, progress, activeHolders, heldItem) {
-        stationBase(ctx, x, y, w, h);
-        const cx = x+w/2, cy = y+h/2;
-        const vr = Math.min(w, h) * 0.36;
-
-        // Viewport
-        stationViewport(ctx, cx, cy-h*0.06, vr, vr);
-
-        // Orbiting orbs inside viewport (animated when cooking)
-        const orbColors = [GOLD, SKY_BLUE, ORANGE, [0,220,100]];
-        const n = isCooking ? 3 : 3;
-        for (let i = 0; i < n; i++) {
-            const speed  = isCooking ? 0.04 : 0.008;
-            const angle  = (2*Math.PI/n)*i + frame*speed;
-            const or2    = vr * 0.58;
-            const ox     = cx + Math.cos(angle)*or2;
-            const oy     = (cy-h*0.06) + Math.sin(angle)*or2*0.6;
-            const r2     = vr * 0.22;
-            const g2 = ctx.createRadialGradient(ox-r2*0.3, oy-r2*0.3, 0, ox, oy, r2);
-            g2.addColorStop(0, rgbToString(orbColors[i].map(c=>Math.min(255,c+70))));
-            g2.addColorStop(1, rgbToString(orbColors[i]));
-            ctx.fillStyle = g2;
-            ctx.beginPath(); ctx.arc(ox, oy, r2, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = 'rgba(255,255,255,0.45)';
-            ctx.beginPath(); ctx.arc(ox-r2*0.25, oy-r2*0.28, r2*0.3, 0, Math.PI*2); ctx.fill();
-        }
-
-        // Clip glow inside viewport
-        if (isCooking) {
-            ctx.save();
-            ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.clip();
-            ctx.fillStyle = `rgba(120,80,255,${0.08 + 0.06*Math.sin(frame*0.1)})`;
-            ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.fill();
-            ctx.restore();
-        }
-
-        // Viewport rim
-        ctx.strokeStyle = '#3a2a10'; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.stroke();
-
-        // Dial (bottom-right)
-        const dx = cx + w*0.28, dy = cy + h*0.34;
-        ctx.fillStyle = '#3a2a10';
-        ctx.beginPath(); ctx.arc(dx, dy, 7, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#8a7a60';
-        ctx.beginPath(); ctx.arc(dx, dy, 5, 0, Math.PI*2); ctx.fill();
-        const dialAngle = frame*0.03;
-        ctx.strokeStyle = '#1a1010'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(dx+Math.cos(dialAngle)*4, dy+Math.sin(dialAngle)*4); ctx.stroke();
-
-        // Blue button (bottom-left)
-        stationButton(ctx, cx-w*0.25, cy+h*0.34, 6, SKY_BLUE);
-
-        // Held item above station
-        if (heldItem && !isCooking) {
-            heldItem.draw(ctx, cx, y-22 + Math.sin(frame*0.08)*5);
-        }
-    }
-
-    function drawStationDreamVisualizer(ctx, x, y, w, h, hl, frame, isCooking, progress, heldItem) {
-        stationBase(ctx, x, y, w, h);
-        const cx = x+w/2, cy = y+h/2;
-        const vr = Math.min(w,h)*0.36;
-        const vcy = cy - h*0.06;
-
-        stationViewport(ctx, cx, vcy, vr, vr);
-
-        // Dream scene inside viewport
-        ctx.save();
-        ctx.beginPath(); ctx.ellipse(cx, vcy, vr, vr, 0, 0, Math.PI*2); ctx.clip();
-
-        // Night sky gradient
-        const sky = ctx.createLinearGradient(cx, vcy-vr, cx, vcy+vr);
-        sky.addColorStop(0, '#0a0820');
-        sky.addColorStop(1, '#1a1250');
-        ctx.fillStyle = sky; ctx.fillRect(cx-vr, vcy-vr, vr*2, vr*2);
-
-        if (isCooking || progress > 0) {
-            // Stars twinkling
-            const stars = [[0.3,0.2],[0.7,0.15],[0.5,0.5],[0.8,0.4],[0.15,0.6],[0.6,0.7]];
-            stars.forEach(([sx,sy]) => {
-                const alpha = 0.5 + 0.5*Math.sin(frame*0.07 + sx*10);
-                ctx.fillStyle = `rgba(255,255,240,${alpha})`;
-                ctx.beginPath(); ctx.arc(cx-vr+sx*vr*2, vcy-vr+sy*vr*2, 1.2, 0, Math.PI*2); ctx.fill();
-            });
-            // Clouds
-            const co = Math.sin(frame*0.02)*4;
-            ctx.fillStyle = 'rgba(180,190,230,0.55)';
-            ctx.beginPath(); ctx.ellipse(cx-8+co, vcy+vr*0.3, 18, 10, 0, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.ellipse(cx+10+co, vcy+vr*0.5, 14, 8, 0, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.ellipse(cx-15+co, vcy+vr*0.55, 12, 7, 0, 0, Math.PI*2); ctx.fill();
-        }
-
-        // Moon
-        ctx.fillStyle = '#f0e870';
-        ctx.beginPath(); ctx.arc(cx+4, vcy-vr*0.35, vr*0.32, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#0a0820';
-        ctx.beginPath(); ctx.arc(cx+10, vcy-vr*0.4, vr*0.24, 0, Math.PI*2); ctx.fill();
-        // Moon glow
-        ctx.fillStyle = 'rgba(255,240,100,0.15)';
-        ctx.beginPath(); ctx.arc(cx+4, vcy-vr*0.35, vr*0.45, 0, Math.PI*2); ctx.fill();
-
-        ctx.restore();
-
-        // Viewport rim
-        ctx.strokeStyle = '#3a2a10'; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.ellipse(cx, vcy, vr, vr, 0, 0, Math.PI*2); ctx.stroke();
-
-        // Indicator lights (bottom row)
-        const ly = cy+h*0.35;
-        const dots = [[ORANGE, 0.15], [[80,200,80], 0.5], [SKY_BLUE, 0.85]];
-        dots.forEach(([c, fx]) => {
-            const pulse = c === ORANGE && isCooking ? 0.4+0.4*Math.sin(frame*0.15) : 1;
-            ctx.globalAlpha = pulse;
-            stationButton(ctx, x+w*fx, ly, 5, c);
-            ctx.globalAlpha = 1;
+        const cx = x+w/2, cy = y+h*0.46, R = Math.min(w,h)*0.26;
+        const rx = w*0.34, ry = h*0.26;
+        if (isCooking) radialGlow(ctx, cx, cy, R*1.9, DREAM.moon, 0.12+0.08*Math.sin(frame*0.1), 0);
+        dreamMoon(ctx, cx, cy, R);
+        // faint orbit track
+        ctx.save(); ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+        ctx.strokeStyle = rgbaHex(DREAM.lav, 0.26); ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
+        // orbiting orbs
+        const spd = isCooking ? 0.05 : 0.018;
+        [GOLD, SKY_BLUE, ORANGE].forEach((col, i) => {
+            const a = i*2.094 + frame*spd;
+            dreamOrb(ctx, cx+Math.cos(a)*rx, cy+Math.sin(a)*ry, Math.min(w,h)*0.08, col);
         });
-
-        // Yellow button
-        stationButton(ctx, cx-w*0.26, ly, 6, GOLD);
-
-        // Held item floats above when not cooking
-        if (heldItem && !isCooking) {
-            heldItem.draw(ctx, cx, y-22 + Math.sin(frame*0.08)*5);
-        }
+        if (heldItem && !isCooking) heldItem.draw(ctx, cx, y-16 + Math.sin(frame*0.08)*4);
     }
 
-    function drawStationTheVoid(ctx, x, y, w, h, hl, frame, heldItem) {
-        // Dark body
-        ctx.fillStyle = 'rgba(0,0,0,0.4)';
-        ctx.beginPath(); ctx.roundRect(x+4, y+4, w, h, 10); ctx.fill();
-        const bg = ctx.createLinearGradient(x, y, x, y+h);
-        bg.addColorStop(0, '#1a1520'); bg.addColorStop(1, '#0d0a14');
-        ctx.fillStyle = bg;
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
-        ctx.strokeStyle = '#3a1f50'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.stroke();
-
-        const cx = x+w/2, cy = y+h/2;
-        const vr = Math.min(w,h)*0.34;
-
-        // Viewport
-        stationViewport(ctx, cx, cy-h*0.06, vr, vr);
-
-        // Swirling vortex
-        ctx.save();
-        ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.clip();
-        for (let ring = 3; ring >= 0; ring--) {
-            const rr = vr*(0.25 + ring*0.18);
-            const alpha = 0.15 + ring*0.08;
-            const rot = frame*0.025*(ring%2===0?1:-1);
-            const g = ctx.createConicGradient(rot, cx, cy-h*0.06);
-            g.addColorStop(0,   `rgba(150,0,255,${alpha})`);
-            g.addColorStop(0.5, `rgba(80,0,180,${alpha*0.4})`);
-            g.addColorStop(1,   `rgba(150,0,255,${alpha})`);
-            ctx.fillStyle = g;
-            ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, rr, rr*0.7, rot*0.3, 0, Math.PI*2); ctx.fill();
-        }
-        // Centre bright point
-        ctx.fillStyle = `rgba(200,100,255,${0.6+0.3*Math.sin(frame*0.12)})`;
-        ctx.beginPath(); ctx.arc(cx, cy-h*0.06, vr*0.12, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.beginPath(); ctx.arc(cx, cy-h*0.06, vr*0.04, 0, Math.PI*2); ctx.fill();
+    // Dream Visualizer → a Scrying Pool: a still, dark pool that reflects the
+    // dream forming — a moon, stars and ripples. Ripples ride outward while cooking.
+    function drawStationDreamVisualizer(ctx, x, y, w, h, hl, frame, isCooking, progress, heldItem) {
+        const cx = x+w/2, cy = y+h*0.52, rx = w*0.42, ry = h*0.30;
+        radialGlow(ctx, cx, cy, Math.max(rx,ry)*1.5, DREAM.lav, 0.14, 0);
+        // pool surface
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+        const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, rx);
+        g.addColorStop(0, '#2a2170'); g.addColorStop(1, '#0f0a2e');
+        ctx.fillStyle = g; ctx.fill();
+        ctx.strokeStyle = rgbaHex(DREAM.foam, 0.55); ctx.lineWidth = 2; ctx.stroke();
+        // reflected scene (clipped to pool)
+        ctx.save(); ctx.beginPath(); ctx.ellipse(cx, cy, rx*0.96, ry*0.94, 0, 0, Math.PI*2); ctx.clip();
+        radialGlow(ctx, cx+rx*0.18, cy-ry*0.15, ry*0.7, DREAM.moon, 0.5, 0);
+        ctx.fillStyle = rgbaHex(DREAM.moon, 0.85);
+        ctx.beginPath(); ctx.arc(cx+rx*0.18, cy-ry*0.15, ry*0.36, 0, Math.PI*2); ctx.fill();
+        [[-0.4,-0.2],[-0.12,0.28],[0.5,0.2],[-0.5,0.34]].forEach(([fx,fy]) => {
+            ctx.fillStyle = rgbaHex(DREAM.cream, 0.8);
+            ctx.beginPath(); ctx.arc(cx+fx*rx, cy+fy*ry, 1.4, 0, Math.PI*2); ctx.fill();
+        });
+        ctx.strokeStyle = rgbaHex(DREAM.foam, 0.22); ctx.lineWidth = 1;
+        const rp = isCooking ? (frame*0.02)%1 : 0.35;
+        [0.4,0.7,1.0].forEach(base => { const rr=(base+rp)%1;
+            ctx.beginPath(); ctx.ellipse(cx, cy, rx*rr, ry*rr, 0, 0, Math.PI*2); ctx.stroke(); });
         ctx.restore();
+        dreamSparkle(ctx, cx-rx*0.7, cy-ry*0.7, 3, rgbaHex(DREAM.foam, 0.8));
+        if (heldItem && !isCooking) heldItem.draw(ctx, cx, y-16 + Math.sin(frame*0.08)*4);
+    }
 
-        // Viewport rim
-        ctx.strokeStyle = '#6020a0'; ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.ellipse(cx, cy-h*0.06, vr, vr, 0, 0, Math.PI*2); ctx.stroke();
-
-        // Purple button
-        stationButton(ctx, cx, cy+h*0.36, 7, [160,50,220]);
-
+    // The Void → a soft inky whirlpool that spirals inward, swallowing mistakes.
+    function drawStationTheVoid(ctx, x, y, w, h, hl, frame, heldItem) {
+        const cx = x+w/2, cy = y+h/2, R = Math.min(w,h)*0.38;
+        radialGlow(ctx, cx, cy, R+14, DREAM.violet, 0.3, 0);
+        const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, R);
+        g.addColorStop(0, '#050310'); g.addColorStop(0.7, '#120a2c');
+        g.addColorStop(1, rgbaHex(DREAM.violet, 0.35));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.fill();
+        // spiral arcs, rotating
+        ctx.save(); ctx.strokeStyle = rgbaHex(DREAM.violet, 0.5); ctx.lineWidth = 1.6;
+        const rot = frame*0.03;
+        for (let i=0;i<3;i++){ ctx.beginPath();
+            for (let t=0;t<Math.PI*2*1.4;t+=0.2){ const rr=R*(1-t/(Math.PI*2*1.6));
+                const a=t+i*2.09+rot, px=cx+Math.cos(a)*rr, py=cy+Math.sin(a)*rr;
+                t===0?ctx.moveTo(px,py):ctx.lineTo(px,py); } ctx.stroke(); }
+        ctx.restore();
+        radialGlow(ctx, cx, cy, 7, '#e6c4ff', 0.95, 0);
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2);
+        ctx.strokeStyle = rgbaHex(DREAM.violet, 0.55); ctx.lineWidth = 2; ctx.stroke();
         if (heldItem) heldItem.draw(ctx, cx, cy);
     }
 
+    // Gateway → a Moongate: a luminous ring of light the finished dream passes through.
     function drawStationGateway(ctx, x, y, w, h, hl, frame) {
-        stationBase(ctx, x, y, w, h);
-        const cx = x+w/2, cy = y+h/2;
-
-        // Arch portal
-        const aw = w*0.56, ah = h*0.64;
-        const ax = cx-aw/2, ay = cy-ah*0.55;
-        // Portal glow
-        const pulse = 0.5 + 0.4*Math.sin(frame*0.07);
-        ctx.fillStyle = `rgba(50,255,150,${0.12*pulse})`;
-        ctx.beginPath(); ctx.roundRect(ax-6, ay-6, aw+12, ah+12, (aw/2)+6); ctx.fill();
-        // Portal frame
-        ctx.fillStyle = '#3a2a10';
-        ctx.beginPath(); ctx.roundRect(ax-3, ay-3, aw+6, ah+6, aw/2+3); ctx.fill();
-        // Portal interior
-        const pg = ctx.createLinearGradient(cx, ay, cx, ay+ah);
-        pg.addColorStop(0, `rgba(0,255,150,${0.7+0.2*pulse})`);
-        pg.addColorStop(1, `rgba(0,180,100,${0.4+0.1*pulse})`);
-        ctx.fillStyle = pg;
-        ctx.beginPath(); ctx.roundRect(ax, ay, aw, ah, aw/2); ctx.fill();
-        // Shimmer lines inside portal
+        const cx = x+w/2, cy = y+h*0.48, R = Math.min(w,h)*0.36;
+        radialGlow(ctx, cx, cy, R+22, DREAM.moon, 0.22, 0);
         ctx.save();
-        ctx.beginPath(); ctx.roundRect(ax, ay, aw, ah, aw/2); ctx.clip();
-        for (let i = 0; i < 4; i++) {
-            const lx = ax + ((frame*1.5 + i*aw*0.25)%(aw+20)) - 10;
-            ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-            ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(lx, ay); ctx.lineTo(lx+8, ay+ah); ctx.stroke();
-        }
+        for (let i=3;i>=0;i--){ ctx.beginPath(); ctx.ellipse(cx, cy, R, R, 0, 0, Math.PI*2);
+            ctx.strokeStyle = rgbaHex(DREAM.moon, 0.12+i*0.03); ctx.lineWidth = 8+i*5; ctx.stroke(); }
         ctx.restore();
-        // Portal rim
-        ctx.strokeStyle = rgbToString([50,255,150]); ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.roundRect(ax, ay, aw, ah, aw/2); ctx.stroke();
-
-        // Label
-        ctx.save(); ctx.font = 'bold 11px Arial'; ctx.fillStyle = '#1a2a1a';
-        ctx.textAlign = 'center'; ctx.fillText('GATEWAY', cx, y+h-10); ctx.restore();
+        ctx.beginPath(); ctx.ellipse(cx, cy, R, R, 0, 0, Math.PI*2);
+        ctx.strokeStyle = rgbaHex(DREAM.cream, 0.95); ctx.lineWidth = 2.4; ctx.stroke();
+        radialGlow(ctx, cx, cy, R, DREAM.foam, 0.1, 0);
+        dreamMoon(ctx, cx, cy-R, Math.min(w,h)*0.09);
+        for (let i=0;i<5;i++){ const a=i/5*Math.PI*2+0.4+frame*0.01;
+            dreamSparkle(ctx, cx+Math.cos(a)*(R+10), cy+Math.sin(a)*(R+10), 2.4, rgbaHex(DREAM.cream, 0.6)); }
     }
 
+    // Vessel Return → Dream-Jars: floating glass bubbles cradling little clouds.
+    // Present ones are solid; missing ones are faint outlines.
     function drawStationVesselReturn(ctx, x, y, w, h, hl, vesselCount) {
-        stationBase(ctx, x, y, w, h);
-        const cx = x+w/2, cy = y+h/2;
-
-        // Label
-        ctx.save(); ctx.font = 'bold 10px Arial'; ctx.fillStyle = '#3a2510';
-        ctx.textAlign = 'center';
-        ctx.fillText('VESSEL', cx, y+14);
-        ctx.fillText('RETURN', cx, y+26);
-        ctx.restore();
-
-        // Stack of vessel dishes
-        const maxV = 3;
-        const baseY = cy + h*0.28;
-        for (let i = 0; i < maxV; i++) {
+        const cx = x+w/2;
+        const spots = [[cx-w*0.24, y+h*0.34], [cx+w*0.24, y+h*0.30], [cx, y+h*0.64]];
+        const r = Math.min(w,h)*0.18;
+        for (let i=0;i<3;i++){
             const present = i < vesselCount;
-            const vy = baseY - i*10;
-            const alpha = present ? 1 : 0.18;
-            ctx.globalAlpha = alpha;
-            // Dish outer
-            ctx.fillStyle = '#c9a97a';
-            ctx.beginPath(); ctx.ellipse(cx, vy, w*0.38, h*0.14, 0, 0, Math.PI*2); ctx.fill();
-            // Dish inner bowl
-            ctx.fillStyle = '#e8d4a8';
-            ctx.beginPath(); ctx.ellipse(cx, vy-2, w*0.28, h*0.10, 0, 0, Math.PI*2); ctx.fill();
-            // Rim highlight
-            ctx.strokeStyle = 'rgba(255,220,150,0.6)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.ellipse(cx, vy, w*0.38, h*0.14, 0, 0, Math.PI*2); ctx.stroke();
+            const [jx, jy] = spots[i];
+            ctx.globalAlpha = present ? 1 : 0.22;
+            radialGlow(ctx, jx, jy, r*1.6, DREAM.foam, 0.22, 0);
+            const g = ctx.createRadialGradient(jx-r*0.3, jy-r*0.3, 0, jx, jy, r);
+            g.addColorStop(0, rgbaHex(DREAM.cream, 0.5));
+            g.addColorStop(0.7, rgbaHex(DREAM.foam, 0.28));
+            g.addColorStop(1, rgbaHex(DREAM.foam, 0.14));
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(jx, jy, r, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = rgbaHex(DREAM.cream, 0.6); ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(jx, jy, r, 0, Math.PI*2); ctx.stroke();
+            ctx.fillStyle = rgbaHex(DREAM.cream, 0.7);
+            [[jx-r*0.3,jy+r*0.15,r*0.32],[jx+r*0.25,jy+r*0.2,r*0.28],[jx,jy,r*0.36]]
+                .forEach(([a,b,cr]) => { ctx.beginPath(); ctx.arc(a,b,cr,0,Math.PI*2); ctx.fill(); });
+            ctx.fillStyle = rgbaHex(DREAM.cream, 0.9);
+            ctx.beginPath(); ctx.arc(jx-r*0.34, jy-r*0.36, r*0.16, 0, Math.PI*2); ctx.fill();
             ctx.globalAlpha = 1;
         }
     }
 
+    // Crate → a Cloud Cradle: a soft cloud that holds a vessel above it.
     function drawStationCrate(ctx, x, y, w, h, hl, heldItem, frame) {
-        // Wood base
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.beginPath(); ctx.roundRect(x+3, y+3, w, h, 8); ctx.fill();
-        const wg = ctx.createLinearGradient(x, y, x, y+h);
-        wg.addColorStop(0, '#c19a58'); wg.addColorStop(0.5, '#a07840'); wg.addColorStop(1, '#7a5828');
-        ctx.fillStyle = wg;
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.fill();
-
-        // Wood grain lines
-        ctx.strokeStyle = 'rgba(90,60,20,0.35)'; ctx.lineWidth = 1;
-        [0.3, 0.55, 0.75].forEach(t => {
-            ctx.beginPath(); ctx.moveTo(x+2, y+h*t); ctx.lineTo(x+w-2, y+h*t); ctx.stroke();
-        });
-        [0.35, 0.65].forEach(t => {
-            ctx.beginPath(); ctx.moveTo(x+w*t, y+2); ctx.lineTo(x+w*t, y+h-2); ctx.stroke();
-        });
-
-        // Metal corner brackets
-        const bSize = 8;
-        const corners = [[x,y],[x+w-bSize,y],[x,y+h-bSize],[x+w-bSize,y+h-bSize]];
-        ctx.fillStyle = '#5a4a30';
-        corners.forEach(([bx,by]) => {
-            ctx.beginPath(); ctx.roundRect(bx, by, bSize, bSize, 2); ctx.fill();
-        });
-
-        // Outer border
-        ctx.strokeStyle = '#5a3e18'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.stroke();
-
-        // Held item
-        if (heldItem) heldItem.draw(ctx, x+w/2, y+h/2, heldItem.isVessel ? 1.2 : 0.85);
+        const cx = x+w/2, cy = y+h*0.64, s = Math.min(w,h);
+        radialGlow(ctx, cx, cy, Math.max(w,h)*0.6, DREAM.lav, 0.14, 0);
+        const puffs = [[cx-s*0.30,cy,s*0.22],[cx+s*0.30,cy,s*0.22],
+                       [cx-s*0.10,cy-s*0.14,s*0.24],[cx+s*0.14,cy-s*0.12,s*0.22],[cx,cy+s*0.06,s*0.28]];
+        ctx.fillStyle = rgbaHex('#d9cef2', 0.96);
+        puffs.forEach(([px,py,pr]) => { ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fill(); });
+        ctx.fillStyle = rgbaHex(DREAM.cream, 0.4);
+        puffs.forEach(([px,py,pr]) => { ctx.beginPath(); ctx.arc(px-pr*0.3,py-pr*0.4,pr*0.4,0,Math.PI*2); ctx.fill(); });
+        if (heldItem) heldItem.draw(ctx, cx, cy - s*0.3, heldItem.isVessel ? 1.05 : 0.8);
     }
 
     // ========== PLAYER ==========
@@ -762,6 +609,12 @@
         const lt = (c,a) => [Math.min(255,c[0]+a),Math.min(255,c[1]+a),Math.min(255,c[2]+a)];
 
         ctx.save();
+
+        // Dreamy starlit aura — keeps the wizard design but grounds it in the new
+        // dream world (soft glow behind the figure + a couple of twinkles).
+        radialGlow(ctx, cx, cy - 2, 26, accentColor, 0.2, 0);
+        dreamSparkle(ctx, cx - 18, cy - 22, 2.6, rgbaHex(DREAM.cream, 0.6));
+        dreamSparkle(ctx, cx + 19, cy - 4, 2.2, rgbaArr(accentColor, 0.7));
 
         // Shadow
         ctx.fillStyle = 'rgba(0,0,0,0.18)';
@@ -1145,7 +998,8 @@
         async nextLevel() {
             if (!this.isHost) return;
             if (this.isTutorial) { this.goToMainMenu(); return; }
-            const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
+            const thresholds = this.starThresholds || LEVEL_STAR_THRESHOLDS;
+            const stars = thresholds.filter(t => this.score >= t).length;
             const passed = stars >= 1;
             let target;
             if (!passed) {
@@ -1166,6 +1020,7 @@
         // ── UI helpers ──────────────────────────────
 
         showLobbyUI() {
+            if (window.gameAudio) window.gameAudio.startMenuMusic();
             document.getElementById('mainMenu').style.display = 'none';
             document.getElementById('lobbyUI').style.display = 'flex';
             document.getElementById('roomCodeDisplay').textContent = this.roomCode;
@@ -1174,7 +1029,7 @@
         }
 
         showLevelSelect() {
-            if (window.gameAudio) window.gameAudio.stopMusic();
+            if (window.gameAudio) window.gameAudio.startMenuMusic();
             refreshStarDisplays();
             document.getElementById('lobbyUI').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'none';
@@ -1265,9 +1120,12 @@
             this.timerSynced      = false;
             this.surgeFlash       = 0;
             this._playerCount     = playerCount;
+            // Star targets scale with party size (more hands = higher bar)
+            this.starThresholds   = (STAR_THRESHOLDS_BY_PLAYERS &&
+                STAR_THRESHOLDS_BY_PLAYERS[Math.min(Math.max(playerCount,1),4) - 1]) || LEVEL_STAR_THRESHOLDS;
 
-            // Start the ambient soundtrack for this level (no-op if muted/unsupported)
-            if (window.gameAudio) window.gameAudio.startMusic();
+            // Switch to the faster level soundtrack (no-op if muted/unsupported)
+            if (window.gameAudio) window.gameAudio.startLevelMusic();
 
             // Fixed starting positions per player slot for each level
             // Slots 0-3 correspond to join order (color index)
@@ -1357,12 +1215,9 @@
             catch(e) { console.error("STATION_UPDATE failed:", e); }
         }
 
-        // Safe sound-cue helper — no-op if audio is unavailable
-        _sfx(name) {
-            if (window.gameAudio && typeof window.gameAudio[name] === 'function') {
-                window.gameAudio[name]();
-            }
-        }
+        // Per-action sound effects are intentionally disabled — music only.
+        // Kept as a no-op hook so the call sites stay in place if we want cues back.
+        _sfx(_name) { /* no-op */ }
 
         getStation(name) { return this.stations.find(s => s.name === name); }
 
@@ -1443,7 +1298,6 @@
                 if (o.time <= 0) {
                     this.score -= MISSED_ORDER_PENALTY;
                     this.redFlash = 0.3;
-                    if (window.gameAudio) window.gameAudio.expire();
                     return false;
                 }
                 return true;
@@ -1984,8 +1838,7 @@
             this._clearSession();  // level finished normally — don't resume this session
             document.getElementById('tutorialDialog').style.display = 'none';
             document.getElementById('levelCompleteUI').style.display = 'flex';
-            if (window.gameAudio) window.gameAudio.stopMusic();
-            this._sfx('levelComplete');
+            if (window.gameAudio) window.gameAudio.startMenuMusic();
 
             if (this.isTutorial) {
                 setBestStars('tutorial', 1);
@@ -1999,7 +1852,8 @@
                 return;
             }
 
-            const stars = LEVEL_STAR_THRESHOLDS.filter(t => this.score >= t).length;
+            const thresholds = this.starThresholds || LEVEL_STAR_THRESHOLDS;
+            const stars = thresholds.filter(t => this.score >= t).length;
             const passed = stars >= 1;
             setBestStars(String(this.currentLevel), stars);
             setBestScore(String(this.currentLevel), this.score);
@@ -2035,8 +1889,20 @@
         }
 
         draw() {
-            this.ctx.fillStyle = rgbToString(BLACK);
+            // Dreamy playfield — deep indigo wash + a soft static starfield
+            const bg = this.ctx.createRadialGradient(WIDTH/2, HEIGHT*0.42, 40, WIDTH/2, HEIGHT*0.55, WIDTH*0.78);
+            bg.addColorStop(0, '#191238');
+            bg.addColorStop(1, '#0a0818');
+            this.ctx.fillStyle = bg;
             this.ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            if (!this._stars) {
+                this._stars = [];
+                for (let i = 0; i < 70; i++) this._stars.push([Math.random()*WIDTH, Math.random()*HEIGHT, Math.random()]);
+            }
+            for (const [sx, sy, sr] of this._stars) {
+                this.ctx.fillStyle = `rgba(255,246,224,${0.18 + sr*0.42})`;
+                this.ctx.beginPath(); this.ctx.arc(sx, sy, 0.5 + sr*1.3, 0, Math.PI*2); this.ctx.fill();
+            }
 
             if (this.gameState === "PLAYING") {
                 for (let s of this.stations) s.draw(this.ctx, this.frame);
@@ -2149,18 +2015,12 @@
 
         game = new Game();
 
-        try {
-            await game.network.connect();
-            console.log('Connected to server');
-
-            // If the tab was refreshed mid-game, try to rejoin automatically
-            const resumed = await game._tryResumeSession();
-            if (resumed) {
-                // loadLevel was called inside _tryResumeSession — game is running
-                document.getElementById('mainMenu').style.display = 'none';
-            }
-
-            game.network.onDisconnect = () => {
+        // Wire network callbacks BEFORE connecting. If the first connection fails
+        // (e.g. a cold / just-restarted server) and only succeeds on a later automatic
+        // reconnect, these must already be attached — otherwise level-load and state
+        // broadcasts arrive with no handler and the host can't enter any level until a
+        // manual page reload. (This was the "only works on the second try" bug.)
+        game.network.onDisconnect = () => {
                 document.getElementById('reconnectBanner').style.display = 'flex';
                 clearInterval(game.lobbyUpdateInterval);
                 game.lobbyUpdateInterval = null;
@@ -2276,8 +2136,21 @@
                 }
             };
 
+        try {
+            await game.network.connect();
+            console.log('Connected to server');
+
+            // If the tab was refreshed mid-game, try to rejoin automatically
+            const resumed = await game._tryResumeSession();
+            if (resumed) {
+                // loadLevel was called inside _tryResumeSession — game is running
+                document.getElementById('mainMenu').style.display = 'none';
+            }
         } catch(e) {
-            console.log('Server connection failed - local mode only:', e);
+            // Initial connect failed (likely a cold server) — the reconnect logic in
+            // network.js keeps retrying, and the callbacks above are already attached,
+            // so the game recovers on its own without a manual reload.
+            console.log('Initial connect failed; auto-reconnect will retry:', e);
         }
 
         let lastTime = Date.now();

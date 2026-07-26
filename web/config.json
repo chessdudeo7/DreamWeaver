@@ -46,7 +46,14 @@
     "two_orb_time_bonus_divisor": 2,
     "three_orb_time_bonus_divisor": 1.5,
     "priority_multiplier": 2,
-    "star_thresholds": [60, 120, 180]
+    "star_thresholds": [60, 120, 180],
+    "_star_thresholds_comment": "Per-party-size [1-star, 2-star, 3-star] point targets, indexed by player_count-1. More players = more throughput, so the bar rises. Tune these to taste.",
+    "star_thresholds_by_players": [
+      [150, 250, 350],
+      [180, 300, 420],
+      [200, 340, 470],
+      [230, 380, 520]
+    ]
   },
 
   "order_generation": {
@@ -80,6 +87,9 @@
   "surge": {
     "interval": 24.0,
     "count": 3,
+    "_scaling_comment": "Surge intensity scales with party size (indexed by player_count-1): solo faces fewer orders, less often, so one player isn't buried.",
+    "interval_by_players": [34, 30, 27, 24],
+    "count_by_players": [1, 2, 2, 3],
     "time_mult": 0.6,
     "hard_cap": 7
   },

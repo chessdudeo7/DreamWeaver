@@ -69,11 +69,18 @@ _JAM              = CONFIG.get("jam", {})
 JAM_CHANCE        = _JAM.get("chance", 0.4)
 JAM_DURATION      = _JAM.get("duration", 4.0)
 JAMMABLE_STATIONS = set(_JAM.get("jammable_stations", []))
-_SURGE            = CONFIG.get("surge", {})
-SURGE_INTERVAL    = _SURGE.get("interval", 24.0)
-SURGE_COUNT       = _SURGE.get("count", 3)
-SURGE_TIME_MULT   = _SURGE.get("time_mult", 0.6)
-SURGE_HARD_CAP    = _SURGE.get("hard_cap", 7)
+_SURGE               = CONFIG.get("surge", {})
+SURGE_INTERVAL       = _SURGE.get("interval", 24.0)
+SURGE_COUNT          = _SURGE.get("count", 3)
+SURGE_INTERVAL_BY_PC = _SURGE.get("interval_by_players")
+SURGE_COUNT_BY_PC    = _SURGE.get("count_by_players")
+SURGE_TIME_MULT      = _SURGE.get("time_mult", 0.6)
+SURGE_HARD_CAP       = _SURGE.get("hard_cap", 7)
+
+def _by_pc(arr, player_count, fallback):
+    if not arr:
+        return fallback
+    return arr[min(max(player_count, 1), 4) - 1]
 
 rooms = {}
 client_to_room = {}
@@ -475,6 +482,9 @@ class GameState:
         self.surge_enabled = bool(_mech.get("surge", False))
         self.surge_tick    = 0.0
         self.surge_ping    = False
+        # Surge intensity scales with party size so solo isn't buried
+        self.surge_interval = _by_pc(SURGE_INTERVAL_BY_PC, self.player_count, SURGE_INTERVAL)
+        self.surge_count    = _by_pc(SURGE_COUNT_BY_PC, self.player_count, SURGE_COUNT)
         self.frame = 0
         self.spawn_tick = 0
         self.orders = []
@@ -620,9 +630,9 @@ class GameState:
             # Surge waves — periodic bursts of orders (levels with surge enabled)
             if self.surge_enabled:
                 self.surge_tick += dt
-                if self.surge_tick >= SURGE_INTERVAL:
+                if self.surge_tick >= self.surge_interval:
                     self.surge_tick = 0.0
-                    for _ in range(SURGE_COUNT):
+                    for _ in range(self.surge_count):
                         self._add_order(time_mult=SURGE_TIME_MULT, cap=SURGE_HARD_CAP)
                     self.surge_ping = True
 
