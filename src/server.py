@@ -125,11 +125,15 @@ async def init_db():
                     score_2      INTEGER DEFAULT 0,
                     score_3      INTEGER DEFAULT 0,
                     score_4      INTEGER DEFAULT 0,
+                    score_5      INTEGER DEFAULT 0,
+                    score_6      INTEGER DEFAULT 0,
                     total        INTEGER DEFAULT 0,
                     stars_1      INTEGER DEFAULT 0,
                     stars_2      INTEGER DEFAULT 0,
                     stars_3      INTEGER DEFAULT 0,
                     stars_4      INTEGER DEFAULT 0,
+                    stars_5      INTEGER DEFAULT 0,
+                    stars_6      INTEGER DEFAULT 0,
                     created_at   TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
@@ -152,6 +156,10 @@ async def init_db():
                 ("stars_2", "INTEGER DEFAULT 0"),
                 ("stars_3", "INTEGER DEFAULT 0"),
                 ("stars_4", "INTEGER DEFAULT 0"),
+                ("score_5", "INTEGER DEFAULT 0"),
+                ("score_6", "INTEGER DEFAULT 0"),
+                ("stars_5", "INTEGER DEFAULT 0"),
+                ("stars_6", "INTEGER DEFAULT 0"),
             ]:
                 try:
                     await conn.execute(
@@ -175,8 +183,9 @@ async def db_get_leaderboard():
     try:
         async with db_pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id, party, player_count, score_1, score_2, score_3, score_4, total, "
-                "stars_1, stars_2, stars_3, stars_4 "
+                "SELECT id, party, player_count, score_1, score_2, score_3, score_4, "
+                "score_5, score_6, total, "
+                "stars_1, stars_2, stars_3, stars_4, stars_5, stars_6 "
                 "FROM leaderboard ORDER BY total DESC LIMIT 50"
             )
             return [_row_to_entry(r) for r in rows]
@@ -191,18 +200,22 @@ async def db_submit_leaderboard(party, scores, player_count=1, stars=None):
     s2 = int(scores.get("2", 0) or scores.get(2, 0))
     s3 = int(scores.get("3", 0) or scores.get(3, 0))
     s4 = int(scores.get("4", 0) or scores.get(4, 0))
-    total = s1 + s2 + s3 + s4
+    s5 = int(scores.get("5", 0) or scores.get(5, 0))
+    s6 = int(scores.get("6", 0) or scores.get(6, 0))
+    total = s1 + s2 + s3 + s4 + s5 + s6
     st1 = int((stars or {}).get("1", 0))
     st2 = int((stars or {}).get("2", 0))
     st3 = int((stars or {}).get("3", 0))
     st4 = int((stars or {}).get("4", 0))
+    st5 = int((stars or {}).get("5", 0))
+    st6 = int((stars or {}).get("6", 0))
     pc  = max(1, min(4, int(player_count or 1)))
     if db_pool is None:
         fake_id = random.randint(100000, 999999)
         _mem_leaderboard.append({
             "id": fake_id, "party": party, "player_count": pc,
-            "scores": {"1": s1, "2": s2, "3": s3, "4": s4},
-            "stars":  {"1": st1, "2": st2, "3": st3, "4": st4},
+            "scores": {"1": s1, "2": s2, "3": s3, "4": s4, "5": s5, "6": s6},
+            "stars":  {"1": st1, "2": st2, "3": st3, "4": st4, "5": st5, "6": st6},
             "total": total,
         })
         _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
@@ -213,10 +226,10 @@ async def db_submit_leaderboard(party, scores, player_count=1, stars=None):
         async with db_pool.acquire() as conn:
             new_id = await conn.fetchval(
                 "INSERT INTO leaderboard "
-                "(party, player_count, score_1, score_2, score_3, score_4, total, "
-                " stars_1, stars_2, stars_3, stars_4) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
-                party, pc, s1, s2, s3, s4, total, st1, st2, st3, st4
+                "(party, player_count, score_1, score_2, score_3, score_4, score_5, score_6, total, "
+                " stars_1, stars_2, stars_3, stars_4, stars_5, stars_6) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id",
+                party, pc, s1, s2, s3, s4, s5, s6, total, st1, st2, st3, st4, st5, st6
             )
         return await db_get_leaderboard(), new_id
     except Exception as e:
@@ -230,19 +243,23 @@ async def db_update_leaderboard(row_id, party, scores, player_count=1, stars=Non
     s2 = int(scores.get("2", 0) or scores.get(2, 0))
     s3 = int(scores.get("3", 0) or scores.get(3, 0))
     s4 = int(scores.get("4", 0) or scores.get(4, 0))
-    total = s1 + s2 + s3 + s4
+    s5 = int(scores.get("5", 0) or scores.get(5, 0))
+    s6 = int(scores.get("6", 0) or scores.get(6, 0))
+    total = s1 + s2 + s3 + s4 + s5 + s6
     st1 = int((stars or {}).get("1", 0))
     st2 = int((stars or {}).get("2", 0))
     st3 = int((stars or {}).get("3", 0))
     st4 = int((stars or {}).get("4", 0))
+    st5 = int((stars or {}).get("5", 0))
+    st6 = int((stars or {}).get("6", 0))
     pc  = max(1, min(4, int(player_count or 1)))
     if db_pool is None:
         for e in _mem_leaderboard:
             if e.get("id") == row_id:
                 e["party"] = party
                 e["player_count"] = pc
-                e["scores"] = {"1": s1, "2": s2, "3": s3, "4": s4}
-                e["stars"]  = {"1": st1, "2": st2, "3": st3, "4": st4}
+                e["scores"] = {"1": s1, "2": s2, "3": s3, "4": s4, "5": s5, "6": s6}
+                e["stars"]  = {"1": st1, "2": st2, "3": st3, "4": st4, "5": st5, "6": st6}
                 e["total"] = total
                 break
         _mem_leaderboard.sort(key=lambda e: e["total"], reverse=True)
@@ -251,9 +268,9 @@ async def db_update_leaderboard(row_id, party, scores, player_count=1, stars=Non
         async with db_pool.acquire() as conn:
             await conn.execute(
                 "UPDATE leaderboard SET party=$1, player_count=$2, "
-                "score_1=$3, score_2=$4, score_3=$5, score_4=$6, total=$7, "
-                "stars_1=$8, stars_2=$9, stars_3=$10, stars_4=$11 WHERE id=$12",
-                party, pc, s1, s2, s3, s4, total, st1, st2, st3, st4, row_id
+                "score_1=$3, score_2=$4, score_3=$5, score_4=$6, score_5=$7, score_6=$8, total=$9, "
+                "stars_1=$10, stars_2=$11, stars_3=$12, stars_4=$13, stars_5=$14, stars_6=$15 WHERE id=$16",
+                party, pc, s1, s2, s3, s4, s5, s6, total, st1, st2, st3, st4, st5, st6, row_id
             )
         return await db_get_leaderboard(), row_id
     except Exception as e:
@@ -271,12 +288,16 @@ def _row_to_entry(row):
             "2": row["score_2"],
             "3": row["score_3"],
             "4": row["score_4"],
+            "5": row.get("score_5", 0) or 0,
+            "6": row.get("score_6", 0) or 0,
         },
         "stars": {
             "1": row.get("stars_1", 0) or 0,
             "2": row.get("stars_2", 0) or 0,
             "3": row.get("stars_3", 0) or 0,
             "4": row.get("stars_4", 0) or 0,
+            "5": row.get("stars_5", 0) or 0,
+            "6": row.get("stars_6", 0) or 0,
         },
         "total": row["total"],
     }

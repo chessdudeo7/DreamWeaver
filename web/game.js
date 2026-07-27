@@ -792,7 +792,7 @@
 
             // Level tabs
             document.getElementById('lbTabTotal').addEventListener('click', () => this.setLbTab('total'));
-            ['1','2','3','4'].forEach(l => {
+            ['1','2','3','4','5','6'].forEach(l => {
                 const btn = document.getElementById('lbTab' + l);
                 if (btn) btn.addEventListener('click', () => this.setLbTab(l));
             });
@@ -1725,6 +1725,8 @@
                 "2": getBestStars("2"),
                 "3": getBestStars("3"),
                 "4": getBestStars("4"),
+                "5": getBestStars("5"),
+                "6": getBestStars("6"),
             };
             const playerCount = this.connectedPlayers.length || 1;
 
@@ -1763,7 +1765,7 @@
 
         setLbTab(tab) {
             this.leaderboardLevel = tab;
-            ['total','1','2','3','4'].forEach(t => {
+            ['total','1','2','3','4','5','6'].forEach(t => {
                 const btn = document.getElementById('lbTab' + (t === 'total' ? 'Total' : t));
                 if (btn) btn.classList.toggle('lb-tab-active', t === tab);
             });
@@ -1816,7 +1818,7 @@
                     starsCell = [0,1,2].map(j => j < s ? '★' : '☆').join('');
                 } else {
                     const st = e.stars || {};
-                    const total = (st['1']||0) + (st['2']||0) + (st['3']||0) + (st['4']||0);
+                    const total = (st['1']||0) + (st['2']||0) + (st['3']||0) + (st['4']||0) + (st['5']||0) + (st['6']||0);
                     starsCell = '★'.repeat(total) || '—';
                 }
 
