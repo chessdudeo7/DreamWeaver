@@ -941,8 +941,3 @@ body {
 }
 .mute-btn:hover { transform: scale(1.08); border-color: var(--teal); }
 .mute-btn.muted { opacity: 0.55; }
-
-/* ── DEMO ONLY — hide player-count UI on the leaderboard.
-   Revert before committing:  git restore web/style.css  (or delete this block) ── */
-.lb-player-tabs,
-.lb-pc-badge { display: none !important; }
