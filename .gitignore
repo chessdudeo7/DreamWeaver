@@ -21,3 +21,16 @@ wheels/
 .vscode/
 .DS_Store
 *.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local env / secrets (DATABASE_URL, GAME_SERVER, ...)
+.env
+.env.local
+
+# Tooling binaries — never commit these
+ngrok.exe
+ngrok
