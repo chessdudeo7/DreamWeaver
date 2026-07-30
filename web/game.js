@@ -80,23 +80,62 @@
         DIFFICULTY_SCALING      = cfg.difficulty_scaling;
     }
 
-    // ── Star + Score persistence (session-only, resets on page load) ──────────
-    const _sessionStars  = {};
-    const _sessionScores = {};
+    // ── Star + Score progress (persisted to localStorage, survives reloads) ───
+    // Best stars/score per level, shown on the level-select cards. This is the
+    // player's all-time progress on this device. (Leaderboard submissions stay
+    // scoped to the current session's party — see submitLeaderboard.)
+    const PROGRESS_KEY = 'dw_progress_v1';
+    let _savedStars  = {};
+    let _savedScores = {};
+
+    function _num(v) {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+
+    (function loadProgress() {
+        try {
+            const raw = localStorage.getItem(PROGRESS_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            if (data && typeof data === 'object') {
+                _savedStars  = (data.stars  && typeof data.stars  === 'object') ? data.stars  : {};
+                _savedScores = (data.scores && typeof data.scores === 'object') ? data.scores : {};
+            }
+        } catch (e) {
+            // Corrupt or unreadable save — start fresh rather than breaking the game
+            console.warn('Could not read saved progress:', e);
+            _savedStars = {}; _savedScores = {};
+        }
+    })();
+
+    function _saveProgress() {
+        try {
+            localStorage.setItem(PROGRESS_KEY,
+                JSON.stringify({ stars: _savedStars, scores: _savedScores }));
+        } catch (e) {
+            // localStorage can be unavailable (private browsing, quota, file://).
+            // Progress then just lives in memory for this session — never fatal.
+        }
+    }
 
     function getBestStars(levelKey) {
-        return _sessionStars[levelKey] || 0;
+        return _num(_savedStars[levelKey]);
     }
     function setBestStars(levelKey, stars) {
-        if (stars > (_sessionStars[levelKey] || 0))
-            _sessionStars[levelKey] = stars;
+        if (_num(stars) > getBestStars(levelKey)) {
+            _savedStars[levelKey] = _num(stars);
+            _saveProgress();
+        }
     }
     function getBestScore(levelKey) {
-        return _sessionScores[levelKey] || 0;
+        return _num(_savedScores[levelKey]);
     }
     function setBestScore(levelKey, score) {
-        if (score > (_sessionScores[levelKey] || 0))
-            _sessionScores[levelKey] = score;
+        if (_num(score) > getBestScore(levelKey)) {
+            _savedScores[levelKey] = _num(score);
+            _saveProgress();
+        }
     }
     function refreshStarDisplays() {
         document.querySelectorAll('.level-stars[data-level]').forEach(el => {
@@ -1719,14 +1758,17 @@
             btn.disabled = true;
             btn.textContent = 'Saving…';
 
-            // Build stars payload from session stars
+            // Stars/scores here come from THIS session's runs (this.levelStars /
+            // this.levelScores), not the persisted all-time progress — a leaderboard
+            // row is one party's outing, so it shouldn't mix in a different party's
+            // saved bests from an earlier session.
             const starsPayload = {
-                "1": getBestStars("1"),
-                "2": getBestStars("2"),
-                "3": getBestStars("3"),
-                "4": getBestStars("4"),
-                "5": getBestStars("5"),
-                "6": getBestStars("6"),
+                "1": this.levelStars["1"] || 0,
+                "2": this.levelStars["2"] || 0,
+                "3": this.levelStars["3"] || 0,
+                "4": this.levelStars["4"] || 0,
+                "5": this.levelStars["5"] || 0,
+                "6": this.levelStars["6"] || 0,
             };
             const playerCount = this.connectedPlayers.length || 1;
 
