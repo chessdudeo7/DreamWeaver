@@ -792,8 +792,6 @@
             this.leaderboardData    = [];
             this.leaderboardLevel   = 'total';
             this.leaderboardPlayers = 'all';   // 'all' | '1' | '2' | '3' | '4'
-            this.levelScores        = {};       // { levelKey: score } accumulated this session
-            this.levelStars         = {};       // { levelKey: stars } accumulated this session
             this.lbSubmittedId      = null;
             this.lbSubmittedParty   = null;
 
@@ -1758,39 +1756,18 @@
             btn.disabled = true;
             btn.textContent = 'Saving…';
 
-            // Stars/scores here come from THIS session's runs (this.levelStars /
-            // this.levelScores), not the persisted all-time progress — a leaderboard
-            // row is one party's outing, so it shouldn't mix in a different party's
-            // saved bests from an earlier session.
-            const starsPayload = {
-                "1": this.levelStars["1"] || 0,
-                "2": this.levelStars["2"] || 0,
-                "3": this.levelStars["3"] || 0,
-                "4": this.levelStars["4"] || 0,
-                "5": this.levelStars["5"] || 0,
-                "6": this.levelStars["6"] || 0,
-            };
-            const playerCount = this.connectedPlayers.length || 1;
+            // Only the party name is sent. Scores, stars and player count come from
+            // the server's own record of the levels this room finished — it ignores
+            // anything we'd claim here, so a tampered client can't post a fake score.
+            const res = await this.network.send({
+                action: this.lbSubmittedId !== null ? "LEADERBOARD_UPDATE" : "LEADERBOARD_SUBMIT",
+                party,
+            });
 
-            let res;
-            if (this.lbSubmittedId !== null) {
-                res = await this.network.send({
-                    action: "LEADERBOARD_UPDATE",
-                    id:     this.lbSubmittedId,
-                    party,
-                    scores:       this.levelScores,
-                    stars:        starsPayload,
-                    player_count: playerCount,
-                });
-            } else {
-                res = await this.network.send({
-                    action: "LEADERBOARD_SUBMIT",
-                    party,
-                    scores:       this.levelScores,
-                    stars:        starsPayload,
-                    player_count: playerCount,
-                });
-            }
+            const resetBtn = () => {
+                btn.disabled = false;
+                btn.textContent = this.lbSubmittedId !== null ? 'Update Score' : 'Add to Leaderboard';
+            };
 
             if (res?.action === "LEADERBOARD_DATA") {
                 this.leaderboardData = res.entries || [];
@@ -1799,10 +1776,30 @@
                 if (res.submitted_id !== undefined) this.lbSubmittedId = res.submitted_id;
                 btn.textContent = 'Submitted! ✦';
                 btn.disabled = true;
+            } else if (res?.status === "error") {
+                // e.g. "Finish a level before submitting a score."
+                this.showLbMessage(res.message || 'Could not submit that score.');
+                resetBtn();
             } else {
-                btn.disabled = false;
-                btn.textContent = this.lbSubmittedId !== null ? 'Update Score' : 'Add to Leaderboard';
+                this.showLbMessage('Could not reach the server. Try again.');
+                resetBtn();
             }
+        }
+
+        // Inline, non-blocking notice inside the leaderboard panel
+        showLbMessage(text) {
+            let el = document.getElementById('lbMessage');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'lbMessage';
+                el.className = 'lb-message';
+                const row = document.getElementById('lbPartyNameRow');
+                row.parentNode.insertBefore(el, row.nextSibling);
+            }
+            el.textContent = text;
+            el.style.display = 'block';
+            clearTimeout(this._lbMsgTimer);
+            this._lbMsgTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
         }
 
         setLbTab(tab) {
@@ -1901,14 +1898,8 @@
             const passed = stars >= 1;
             setBestStars(String(this.currentLevel), stars);
             setBestScore(String(this.currentLevel), this.score);
-
-            // Accumulate for leaderboard (best per level this session)
-            const lk = String(this.currentLevel);
-            if (!this.levelScores[lk] || this.score > this.levelScores[lk])
-                this.levelScores[lk] = this.score;
-            // Also track best stars per level for leaderboard submission
-            if (!this.levelStars[lk] || stars > this.levelStars[lk])
-                this.levelStars[lk] = stars;
+            // Note: what reaches the leaderboard is the server's own record of this
+            // level (see record_level_result in server.py) — nothing tracked here.
 
             refreshStarDisplays();
 

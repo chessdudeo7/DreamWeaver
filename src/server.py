@@ -47,6 +47,20 @@ THREE_ORB_BASE_POINTS   = _S["three_orb_base_points"]
 TWO_ORB_TIME_DIVISOR    = _S["two_orb_time_bonus_divisor"]
 THREE_ORB_TIME_DIVISOR  = _S["three_orb_time_bonus_divisor"]
 PRIORITY_MULTIPLIER     = _S["priority_multiplier"]
+STAR_THRESHOLDS         = _S["star_thresholds"]
+STAR_THRESHOLDS_BY_PC   = _S.get("star_thresholds_by_players")
+
+def compute_stars(score, player_count):
+    """Authoritative star count for a finished level.
+
+    Mirrors the client's calculation and reads the same shared config, so the
+    server can score leaderboard entries itself instead of trusting the client.
+    """
+    pc = max(1, min(4, int(player_count or 1)))
+    thresholds = STAR_THRESHOLDS
+    if STAR_THRESHOLDS_BY_PC:
+        thresholds = STAR_THRESHOLDS_BY_PC[pc - 1]
+    return sum(1 for t in thresholds if score >= t)
 
 PRIORITY_THREE_ORB_BASE_TIME = _T["priority_three_orb_base_time"]
 
@@ -310,6 +324,29 @@ def _mem_leaderboard_sorted():
     return sorted(_mem_leaderboard, key=lambda e: e["total"], reverse=True)[:50]
 
 
+# ── Authoritative level results ──────────────────────────────────────────────
+
+def record_level_result(room, gs):
+    """Bank the server's own result for a level the moment it finishes.
+
+    These are the ONLY scores that can reach the leaderboard — the client's
+    self-reported numbers are ignored on submit. Keeps the best run per level.
+    """
+    if gs is None or gs.is_tutorial:
+        return
+    key = str(gs.level)
+    # Negative runs aren't worth posting; floor at 0 (matches the client display).
+    score = max(0, int(gs.score))
+    results = room.setdefault("results", {})
+    prev = results.get(key)
+    if prev is None or score > prev["score"]:
+        results[key] = {
+            "score": score,
+            "stars": compute_stars(score, gs.player_count),
+            "player_count": gs.player_count,
+        }
+
+
 # ── Room Snapshot Persistence ────────────────────────────────────────────────
 
 def _room_to_snapshot(room):
@@ -321,6 +358,10 @@ def _room_to_snapshot(room):
         "game_state":   gs.to_dict(ts) if gs else None,
         "level":        gs.level if gs else None,
         "is_tutorial":  gs.is_tutorial if gs else False,
+        # Banked level results + the leaderboard row this room owns, so a server
+        # restart doesn't lose a party's progress or let them re-submit a new row.
+        "results":      room.get("results", {}),
+        "lb_row_id":    room.get("lb_row_id"),
         # Store player names + colors so they can be displayed on rejoin
         "players_meta": [
             {"name": p["name"], "color": p["color"]}
@@ -833,6 +874,10 @@ async def handle_client(websocket):
                                 "game_state": gs,
                                 "tutorial_state": None,
                                 "players_dict": {},
+                                # Restore banked results so a restart doesn't wipe the
+                                # party's progress or let them post a duplicate row
+                                "results": snapshot.get("results", {}) or {},
+                                "lb_row_id": snapshot.get("lb_row_id"),
                             }
                             room_connections[code] = []
                             print(f"Room {code} restored from snapshot")
@@ -874,7 +919,10 @@ async def handle_client(websocket):
                         "state": "LOBBY",
                         "game_state": None,
                         "tutorial_state": None,
-                        "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}}
+                        "players_dict": {client_id: {"id": client_id, "name": name, "color": color, "x": 450, "y": 350, "heldItem": None}},
+                        # Server-verified level results + the leaderboard row this room owns
+                        "results": {},
+                        "lb_row_id": None,
                     }
                     room_connections[code] = [websocket]
                     client_to_room[client_id] = code
@@ -975,8 +1023,15 @@ async def handle_client(websocket):
                             # Bug 3 fix: use None sentinel to avoid dt spike on first tick
                             now_t = time()
                             dt = (now_t - game_state.last_update_time) if game_state.last_update_time is not None else 0.0
+                            was_complete = (game_state.state == "LEVEL_COMPLETE")
                             game_state.update(dt, rooms[current_room]["players_dict"])
                             game_state.last_update_time = now_t
+
+                            # Level just ended — bank the server's own score for it.
+                            # This is what the leaderboard will use, not the client's word.
+                            if not was_complete and game_state.state == "LEVEL_COMPLETE":
+                                record_level_result(rooms[current_room], game_state)
+                                asyncio.create_task(db_save_room(current_room, rooms[current_room]))
 
                             # Throttled snapshot save — captures full station state every 30s
                             # so reconnect after crash restores DV/LF/crate state too
@@ -1196,24 +1251,45 @@ async def handle_client(websocket):
                     entries = await db_get_leaderboard()
                     response = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
 
-                elif action == "LEADERBOARD_SUBMIT":
-                    party_name   = request.get("party", "Unknown")[:24]
-                    scores       = request.get("scores", {})
-                    player_count = request.get("player_count", 1)
-                    stars        = request.get("stars", {})
-                    entries, new_id = await db_submit_leaderboard(party_name, scores, player_count, stars)
-                    response = {"status": "success", "action": "LEADERBOARD_DATA",
-                                "entries": entries, "submitted_id": new_id}
+                # ── Leaderboard writes ────────────────────────────────────────
+                # Scores and stars come from the server's own banked results
+                # (record_level_result), never from the request body. The client
+                # only chooses the party name. A room may hold exactly one row,
+                # which it can update but nobody else can touch.
+                elif action in ("LEADERBOARD_SUBMIT", "LEADERBOARD_UPDATE"):
+                    party_name = str(request.get("party", "Unknown"))[:24]
+                    room       = rooms.get(current_room) if current_room else None
+                    results    = (room or {}).get("results") or {}
 
-                elif action == "LEADERBOARD_UPDATE":
-                    row_id       = request.get("id")
-                    party_name   = request.get("party", "Unknown")[:24]
-                    scores       = request.get("scores", {})
-                    player_count = request.get("player_count", 1)
-                    stars        = request.get("stars", {})
-                    entries, upd_id = await db_update_leaderboard(row_id, party_name, scores, player_count, stars)
-                    response = {"status": "success", "action": "LEADERBOARD_DATA",
-                                "entries": entries, "submitted_id": upd_id}
+                    if room is None:
+                        response = {"status": "error", "message": "Join a room before submitting."}
+                    elif not results:
+                        response = {"status": "error",
+                                    "message": "Finish a level before submitting a score."}
+                    else:
+                        scores = {k: v["score"] for k, v in results.items()}
+                        stars  = {k: v["stars"] for k, v in results.items()}
+                        # One row per party: use the largest party that contributed a run
+                        pc = max((v.get("player_count", 1) for v in results.values()), default=1)
+                        owned_id = room.get("lb_row_id")
+
+                        if action == "LEADERBOARD_UPDATE" and owned_id is None:
+                            response = {"status": "error",
+                                        "message": "Nothing to update yet — submit first."}
+                        elif owned_id is not None:
+                            # Update the row this room owns, ignoring any id the client sent
+                            entries, upd_id = await db_update_leaderboard(
+                                owned_id, party_name, scores, pc, stars)
+                            response = {"status": "success", "action": "LEADERBOARD_DATA",
+                                        "entries": entries, "submitted_id": upd_id}
+                        else:
+                            entries, new_id = await db_submit_leaderboard(
+                                party_name, scores, pc, stars)
+                            if new_id is not None:
+                                room["lb_row_id"] = new_id
+                                asyncio.create_task(db_save_room(current_room, room))
+                            response = {"status": "success", "action": "LEADERBOARD_DATA",
+                                        "entries": entries, "submitted_id": new_id}
 
                 await websocket.send(make_response(response, rid))
 
@@ -1236,6 +1312,11 @@ async def handle_client(websocket):
             if room_code in room_connections:
                 room_connections[room_code] = [c for c in room_connections[room_code] if id(c) != client_id]
             if room_code in rooms:
+                # Look the game state up first. This used to be read *after* the
+                # vessel-return check below, which raised UnboundLocalError on a
+                # normal disconnect and aborted the rest of this cleanup — leaving
+                # ghost players in the room and their station locks held forever.
+                gs = rooms[room_code].get("game_state")
                 # If disconnecting player was holding a vessel, return it
                 # to the Vessel Return so it isn't permanently lost
                 leaving_player = rooms[room_code]["players_dict"].get(client_id)
@@ -1249,7 +1330,6 @@ async def handle_client(websocket):
                 rooms[room_code]["players"] = [
                     p for p in rooms[room_code]["players"] if p["id"] != client_id]
                 rooms[room_code]["players_dict"].pop(client_id, None)
-                gs = rooms[room_code].get("game_state")
                 if gs:
                     gs.release_all_locks(client_id)
                     lf = gs.stations.get("Orb Processor")
