@@ -775,7 +775,13 @@
             this.spacebarPressed = false;
 
             this.lastSyncTime = 0;
-            this.syncInterval = 16;
+            // Minimum gap between position syncs, in ms. At 16 this fired once per
+            // frame (~60/s per client), and since every SYNC makes the server tick
+            // AND broadcast to everyone, a 4-player room pushed ~960 msgs/sec.
+            // 33ms (~30/s) halves that. Remote players still look smooth because
+            // they're interpolated toward their target every frame regardless, and
+            // the sim stays accurate because it advances on real elapsed dt.
+            this.syncInterval = 33;
             this.lastDeliveryTime = 0;
 
             // Orb Processor state for this player
