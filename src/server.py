@@ -1360,19 +1360,20 @@ async def main():
         try:
             from websockets.http11 import Response
             from websockets.datastructures import Headers
-            if request.method in ("GET", "HEAD"):
-                # If this looks like a real WebSocket upgrade, let it through
-                if request.headers.get("Upgrade", "").lower() == "websocket":
-                    return None  # proceed to WebSocket handshake
-                # Otherwise it's a health check — reply with HTTP 200
-                body = b"OK"
-                headers = Headers([
-                    ("Content-Type", "text/plain"),
-                    ("Content-Length", str(len(body))),
-                ])
-                return Response(200, "OK", headers, body)
-        except Exception:
-            pass
+            # NOTE: websockets' Request exposes only .path and .headers — there is
+            # no .method. Checking it raised AttributeError, which the except below
+            # swallowed, so this hook never actually ran and health checks got a
+            # bare 426 instead. Gate on the Upgrade header alone.
+            if request.headers.get("Upgrade", "").lower() == "websocket":
+                return None  # real WebSocket handshake — let it through
+            body = b"OK"
+            headers = Headers([
+                ("Content-Type", "text/plain"),
+                ("Content-Length", str(len(body))),
+            ])
+            return Response(200, "OK", headers, body)
+        except Exception as e:
+            print(f"process_request failed: {type(e).__name__}: {e}")
         return None
 
     import logging

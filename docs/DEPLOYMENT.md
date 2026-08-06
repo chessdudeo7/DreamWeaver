@@ -29,16 +29,10 @@ still runs fine — the leaderboard just falls back to in-memory and resets on r
 The server creates its own tables (`leaderboard`, `room_snapshots`) on startup and
 migrates them in place, so there's no manual SQL step.
 
-> **On health checks:** this is a pure WebSocket server, so a plain HTTP request
-> to it returns `426 Upgrade Required`. That's a *healthy* response — it means the
-> server is up and asking you to open a WebSocket. Render is satisfied by the port
-> being open, so leave the health check path unset; if you point one at `/` it will
-> see the 426 and may mark the service unhealthy.
->
-> (`src/server.py` has a `process_request` hook that was meant to return `200 OK`
-> for these, but it doesn't currently take effect — `websockets`' `Request` object
-> has no `.method` attribute, so the check raises and is swallowed by the
-> surrounding `except`. Harmless in practice; the 426 works fine.)
+> **On health checks:** Render's health checker sends plain HTTP `GET /`. The
+> `process_request` hook in `src/server.py` answers those with `200 OK` while
+> still letting real WebSocket upgrades through, so you can safely point a health
+> check path at `/`.
 
 ## 2. Client (Vercel)
 
