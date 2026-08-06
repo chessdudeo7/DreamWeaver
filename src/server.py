@@ -1349,44 +1349,6 @@ async def handle_client(websocket):
                     asyncio.create_task(_delayed_cleanup(room_code))
         print(f"Connection closed: {client_id}")
 
-async def health_check(websocket):
-    """
-    Render sends periodic HTTP HEAD/GET requests to keep the service alive.
-    websockets rejects these because they aren't valid WebSocket upgrades.
-    This handler intercepts them and sends a plain HTTP 200 response instead,
-    silencing the flood of InvalidMessage errors in the logs.
-    """
-    try:
-        # Read the raw HTTP request line
-        request_line = await asyncio.wait_for(websocket.reader.readline(), timeout=2.0)
-        if request_line.upper().startswith((b"HEAD", b"GET")):
-            # Drain the rest of the headers
-            while True:
-                line = await asyncio.wait_for(websocket.reader.readline(), timeout=1.0)
-                if line in (b"\r\n", b"\n", b""):
-                    break
-            # Send a minimal HTTP 200
-            websocket.writer.write(
-                b"HTTP/1.1 200 OK\r\n"
-                b"Content-Length: 2\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-                b"OK"
-            )
-            await websocket.writer.drain()
-    except Exception:
-        pass
-
-
-async def handle_connection(websocket):
-    """Route: WebSocket upgrade goes to game handler, plain HTTP goes to health check."""
-    # websockets >= 12 passes the HTTP request in websocket.request
-    # If it's already been upgraded, handle it as a game client.
-    # The HEAD/GET health checks never complete the upgrade, so we never reach here
-    # for them — websockets raises InvalidMessage before calling this handler.
-    await handle_client(websocket)
-
-
 async def main():
     print(f"DATABASE_URL set: {bool(DATABASE_URL)}")
     await init_db()
