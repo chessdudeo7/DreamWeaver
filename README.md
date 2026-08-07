@@ -115,3 +115,7 @@ connection or a server restart drops you back where you left off.
 ## Deploying
 
 See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+## License
+
+[MIT](LICENSE) — do what you like with it.
