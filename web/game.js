@@ -80,10 +80,9 @@
         DIFFICULTY_SCALING      = cfg.difficulty_scaling;
     }
 
-    // ── Star + Score progress (persisted to localStorage, survives reloads) ───
-    // Best stars/score per level, shown on the level-select cards. This is the
-    // player's all-time progress on this device. (Leaderboard submissions stay
-    // scoped to the current session's party — see submitLeaderboard.)
+    // ── Star + Score progress ────────────────────────────────────────────────
+    // All-time bests per level, shown on the level cards. Leaderboard rows use
+    // this session's runs instead — see submitLeaderboard.
     const PROGRESS_KEY = 'dw_progress_v1';
     let _savedStars  = {};
     let _savedScores = {};
@@ -371,9 +370,7 @@
     }
 
     // ── Dream art helpers ─────────────────────────────────────────────────────
-    // Stations are drawn as luminous dream-objects on the dark playfield rather
-    // than as machines. These primitives are shared by the station renderers and
-    // by Item.draw so orbs, moons and glows read consistently across the game.
+    // Shared by the station renderers and Item.draw so orbs, moons and glows match.
     const DREAM = {
         lav:'#c3b3f0', foam:'#8fe8d4', moon:'#ffe9b0',
         violet:'#b98cff', cream:'#fff6e0', indigo:'#241a52'
@@ -775,12 +772,8 @@
             this.spacebarPressed = false;
 
             this.lastSyncTime = 0;
-            // Minimum gap between position syncs, in ms. At 16 this fired once per
-            // frame (~60/s per client), and since every SYNC makes the server tick
-            // AND broadcast to everyone, a 4-player room pushed ~960 msgs/sec.
-            // 33ms (~30/s) halves that. Remote players still look smooth because
-            // they're interpolated toward their target every frame regardless, and
-            // the sim stays accurate because it advances on real elapsed dt.
+            // ms between position syncs. Every SYNC ticks the server and rebroadcasts
+            // to the room, so 16 (once per frame) meant ~960 msgs/sec with 4 players.
             this.syncInterval = 33;
             this.lastDeliveryTime = 0;
 
@@ -2056,11 +2049,9 @@
 
         game = new Game();
 
-        // Wire network callbacks BEFORE connecting. If the first connection fails
-        // (e.g. a cold / just-restarted server) and only succeeds on a later automatic
-        // reconnect, these must already be attached — otherwise level-load and state
-        // broadcasts arrive with no handler and the host can't enter any level until a
-        // manual page reload. (This was the "only works on the second try" bug.)
+        // Attach before connecting: if the first connect fails against a cold server
+        // and only a later reconnect succeeds, these need to already be wired or
+        // level loads arrive with no handler.
         game.network.onDisconnect = () => {
                 document.getElementById('reconnectBanner').style.display = 'flex';
                 clearInterval(game.lobbyUpdateInterval);

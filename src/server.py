@@ -1251,11 +1251,8 @@ async def handle_client(websocket):
                     entries = await db_get_leaderboard()
                     response = {"status": "success", "action": "LEADERBOARD_DATA", "entries": entries}
 
-                # ── Leaderboard writes ────────────────────────────────────────
-                # Scores and stars come from the server's own banked results
-                # (record_level_result), never from the request body. The client
-                # only chooses the party name. A room may hold exactly one row,
-                # which it can update but nobody else can touch.
+                # Scores come from record_level_result, never the request body —
+                # the client only picks the party name. One row per room.
                 elif action in ("LEADERBOARD_SUBMIT", "LEADERBOARD_UPDATE"):
                     party_name = str(request.get("party", "Unknown"))[:24]
                     room       = rooms.get(current_room) if current_room else None
@@ -1360,10 +1357,8 @@ async def main():
         try:
             from websockets.http11 import Response
             from websockets.datastructures import Headers
-            # NOTE: websockets' Request exposes only .path and .headers — there is
-            # no .method. Checking it raised AttributeError, which the except below
-            # swallowed, so this hook never actually ran and health checks got a
-            # bare 426 instead. Gate on the Upgrade header alone.
+            # Gate on the Upgrade header — websockets' Request has no .method
+            # (reading it used to throw in here and silently skip the 200).
             if request.headers.get("Upgrade", "").lower() == "websocket":
                 return None  # real WebSocket handshake — let it through
             body = b"OK"
